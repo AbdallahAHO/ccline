@@ -3,6 +3,9 @@ name: Release & Publish
 on:
   push:
     branches: [main]
+    paths:
+      - 'bin/**'
+      - 'package.json'
 
 permissions:
   contents: write
