@@ -36,7 +36,7 @@ weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day
 ## Install
 
 ```bash
-npx @abdallahaho/ccline
+npx @abdallahaho/ccline@latest
 ```
 
 This copies the statusline script to `~/.claude/statusline.sh` and configures your `~/.claude/settings.json`. Restart Claude Code to see it.
@@ -59,7 +59,7 @@ sudo apt install jq curl git
 ## Uninstall
 
 ```bash
-npx @abdallahaho/ccline --uninstall
+npx @abdallahaho/ccline@latest --uninstall
 ```
 
 Restores your previous statusline if a backup exists, or removes it and cleans up settings.json.
