@@ -1,0 +1,54 @@
+{
+  "name": "@abdallahaho/ccline",
+  "version": "1.0.0",
+  "description": "A feature-rich Claude Code statusline with session tracking, quota monitoring, peak hour detection, and burn rate projection",
+  "bin": {
+    "ccline": "bin/install.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "statusline",
+    "cli",
+    "anthropic",
+    "developer-tools"
+  ],
+  "author": "Abdallah Othman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AbdallahAHO/ccline.git"
+  },
+  "homepage": "https://github.com/AbdallahAHO/ccline",
+  "release-it": {
+    "git": {
+      "commitMessage": "chore: release v${version}",
+      "tagName": "v${version}"
+    },
+    "github": {
+      "release": true,
+      "releaseName": "v${version}"
+    },
+    "npm": {
+      "publish": true,
+      "publishArgs": [
+        "--access",
+        "public"
+      ]
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "preset": "angular",
+        "infile": "CHANGELOG.md"
+      }
+    },
+    "hooks": {
+      "before:init": [
+        "git log --oneline -5"
+      ]
+    }
+  }
+}
