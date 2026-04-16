@@ -13,7 +13,8 @@ const ok = (msg) => console.log(`  ${green("✓")} ${msg}`);
 const warn = (msg) => console.log(`  ${yellow("!")} ${msg}`);
 const fail = (msg) => console.log(`  ${red("✗")} ${msg}`);
 
-const CLAUDE_DIR = path.join(process.env.HOME, ".claude");
+const HOME = process.env.HOME || process.env.USERPROFILE || require("os").homedir();
+const CLAUDE_DIR = path.join(HOME, ".claude");
 const STATUSLINE_PATH = path.join(CLAUDE_DIR, "statusline.sh");
 const SETTINGS_PATH = path.join(CLAUDE_DIR, "settings.json");
 const SOURCE_PATH = path.resolve(__dirname, "statusline.sh");
@@ -23,11 +24,18 @@ const SETTINGS_ENTRY = {
   command: 'bash "$HOME/.claude/statusline.sh"',
 };
 
+function installHint(missing) {
+  if (process.platform === "darwin") return `brew install ${missing.join(" ")}`;
+  if (process.platform === "win32") return `choco install ${missing.join(" ")}  (or winget)`;
+  return `sudo apt install ${missing.join(" ")}  (or your distro's package manager)`;
+}
+
 function checkDeps() {
-  const required = ["jq", "curl", "git"];
+  const required = ["bash", "jq", "curl", "git"];
+  const which = process.platform === "win32" ? "where" : "which";
   const missing = required.filter((cmd) => {
     try {
-      execSync(`which ${cmd}`, { stdio: "ignore" });
+      execSync(`${which} ${cmd}`, { stdio: "ignore" });
       return false;
     } catch {
       return true;
@@ -36,9 +44,10 @@ function checkDeps() {
 
   if (missing.length > 0) {
     fail(`Missing dependencies: ${missing.join(", ")}`);
-    console.log(
-      `\n  Install with: ${dim(`brew install ${missing.join(" ")}`)}`,
-    );
+    console.log(`\n  Install with: ${dim(installHint(missing))}`);
+    if (process.platform === "win32") {
+      console.log(`  ${dim("Tip: run Claude Code under Git Bash or WSL — PowerShell can't execute a .sh statusline directly.")}`);
+    }
     process.exit(1);
   }
 }

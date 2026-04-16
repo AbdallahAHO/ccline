@@ -8,30 +8,37 @@ A feature-rich statusline for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 **Line 1 — Identity & Project**
 ```
-O4.6 1M ● high | 📂 really-app (main*) 📝+147 -38 | → src/features/search
+O4.7 1M ● high 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-reviewer | ⎇ feat-x | → src/features/search
 ```
 - Compact model name with effort level
-- Project root with git branch and dirty indicator
+- Permission mode badge — `🛡 plan`, `✎ auto` (acceptEdits), or `⚡ bypass` (bypassPermissions). Hidden in default mode.
+- Output-style badge (e.g., `◎ Learning`) when not `default`
+- Vim mode indicator (`[N]` / `[I]`) when vim mode is on
+- Project root with git branch and dirty indicator (single `git status` call)
 - Lines changed this session
-- Current working directory (relative to project, fish-style if outside)
+- Subagent name (`@code-reviewer`) and worktree (`⎇ feat-x`) when active
+- `⚠ downgraded` flag when Claude Code has fallen back to the 200k-context tier
+- Current working directory (relative to project, fish-style abbreviation if outside)
 
 **Line 2 — Session Health**
 ```
-#84 turns | ⏱ 2h14m | 72% 720k/1m ctx compact? | $12.41
+#84 turns | ⏱ 2h14m | 72% 720k/1m ctx compact soon | $12.41 | api 66%
 ```
-- Turn counter (yellow at 30, red at 50 — time to start fresh)
-- Session duration
-- Context window usage with absolute tokens and compaction nudge at 60%+
+- Real user-turn counter (yellow at 30, red at 50 — tool results no longer inflate the count)
+- Session duration (cross-platform — uses birthtime on macOS/Linux with mtime fallback on filesystems that don't track it)
+- Context window usage with `compact soon` / `compacting…` / `⛔ blocked` warnings matching Claude Code's actual autocompact thresholds (20k / 13k / 3k below the context limit)
 - Running session cost (yellow at $5, red at $10)
+- API-latency ratio — what fraction of total wall time was spent waiting on the model
 
 **Lines 3-4 — Quota & Rate Limits**
 ```
 current ●●●●●●●○○○  68% resets 3:42pm  🔥 PEAK til 8pm
-weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day
+weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day ⚡
 ```
-- 5-hour and 7-day rate limit bars via Anthropic OAuth API (cached, 60s TTL)
-- Peak hour detection (05:00-11:00 PT) with local end time — only shows when active
+- Rate limits read directly from Claude Code's input JSON (freshest data); OAuth API serves as a fallback when input is empty (cached 60s at `${TMPDIR:-/tmp}/claude-$UID/`)
+- Peak hour detection (05:00–11:00 PT) with local end time — only shows when active
 - Weekly burn rate projection — green if on pace, yellow if tight, red if you'll hit the limit
+- `⚡ burning fast` on either window when you're tracking ahead of schedule
 
 ## Install
 
@@ -45,16 +52,24 @@ If you already have a custom statusline, it's backed up to `statusline.sh.bak` f
 
 ## Requirements
 
-- `jq`, `curl`, `git`
+- `bash`, `jq`, `curl`, `git`
 - Claude Code with an active Max/Pro subscription (for rate limit bars)
 
 ```bash
 # macOS
 brew install jq
 
-# Ubuntu/Debian
+# Ubuntu / Debian / WSL
 sudo apt install jq curl git
+
+# Windows (Git Bash / MSYS2)
+pacman -S jq curl git
+# or with Chocolatey from PowerShell:
+choco install jq curl git
 ```
+
+### Windows notes
+ccline runs under **Git Bash**, **MSYS2**, or **WSL** — it is a bash script, not a native PowerShell one. Make sure Claude Code itself is launched from one of those shells so that the statusline command resolves `bash` correctly. PowerShell users can point the `statusLine` entry at `bash -c "$HOME/.claude/statusline.sh"` but running Claude Code under Git Bash or WSL is simpler.
 
 ## Uninstall
 
@@ -66,12 +81,14 @@ Restores your previous statusline if a backup exists, or removes it and cleans u
 
 ## How it works
 
-Claude Code pipes a JSON blob to the statusline script on every render. The script extracts model info, context usage, session cost, and workspace data from that JSON. Rate limit data is fetched from the Anthropic OAuth API and cached for 60 seconds at `/tmp/claude/statusline-usage-cache.json`.
+Claude Code pipes a JSON blob to the statusline script on every render. The script does a single `jq` parse via `eval`, then pulls rate limits directly from that blob when present — that data is always fresher than anything we could re-fetch. If the input JSON doesn't carry `rate_limits` (rare — only the very first render after launch), we fall back to the OAuth usage API, cached for 60s at `${TMPDIR:-/tmp}/claude-$UID/statusline-usage-cache.json` with `0700` perms.
 
-The OAuth token is resolved from (in order):
+Autocompact thresholds (`compact soon` / `compacting…` / `⛔ blocked`) mirror `src/services/compact/autoCompact.ts` in the Claude Code source: 20k / 13k / 3k below the model's context window.
+
+The OAuth token (only needed for the API fallback and the `extra` line) is resolved from (in order):
 1. `$CLAUDE_CODE_OAUTH_TOKEN` environment variable
 2. macOS Keychain
-3. `~/.claude/.credentials.json`
+3. `~/.claude/.credentials.json` (works on every platform)
 4. Linux `secret-tool`
 
 ## Credits
