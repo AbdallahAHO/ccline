@@ -6,6 +6,8 @@ on:
     paths:
       - 'bin/**'
       - 'package.json'
+      - '.github/workflows/publish.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
