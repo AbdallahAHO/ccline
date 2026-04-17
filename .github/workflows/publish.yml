@@ -30,8 +30,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # `npm i -g npm@latest` unlinks its own node_modules mid-install and then
+      # crashes on `Cannot find module 'promise-retry'` (npm/cli#8172). Install
+      # the new npm into an isolated prefix so the running npm isn't touched,
+      # then prepend it to PATH — release-it picks it up automatically.
       - name: Upgrade npm for OIDC support
-        run: npm install -g npm@latest
+        run: |
+          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/npm-upgrade" -g npm@latest
+          echo "$RUNNER_TEMP/npm-upgrade/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/npm-upgrade/bin/npm" --version
 
       - name: Install release-it
         run: npm install -g release-it @release-it/conventional-changelog
