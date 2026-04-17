@@ -1,5 +1,13 @@
 # Changelog
 
+# [1.3.0](https://github.com/AbdallahAHO/ccline/compare/v1.1.1...v1.3.0) (2026-04-17)
+
+
+### Features
+
+* **statusline:** fixes, cross-platform support, and polish ([a8286ba](https://github.com/AbdallahAHO/ccline/commit/a8286ba2283d63c2ffe384cbc075d1473bf79b84))
+* **statusline:** sync bin/statusline.sh to local ([8ce58dc](https://github.com/AbdallahAHO/ccline/commit/8ce58dcd35114aa16e86d27387811b236b548c47))
+
 ## [1.2.0](https://github.com/AbdallahAHO/ccline/compare/v1.1.1...v1.2.0) (2026-04-17)
 
 ### Features
