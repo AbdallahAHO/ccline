@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/AbdallahAHO/ccline/compare/v1.3.0...v1.3.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **statusline:** avoid leaving stale .git/index.lock ([5bbfdae](https://github.com/AbdallahAHO/ccline/commit/5bbfdaec8b2b2df178594a1dbfcefc0e87ff77a1))
+
 # [1.3.0](https://github.com/AbdallahAHO/ccline/compare/v1.1.1...v1.3.0) (2026-04-17)
 
 
