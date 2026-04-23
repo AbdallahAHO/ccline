@@ -252,9 +252,12 @@ if [ "$cwd" != "$project_dir" ]; then
 fi
 
 # Single `git status --porcelain=v1 -b` captures branch + dirty together.
+# `GIT_OPTIONAL_LOCKS=0` skips the stat-cache refresh that would take
+# `.git/index.lock` — otherwise a killed statusline can leave a stale lock
+# and break the user's next checkout/commit (git 2.15+).
 git_branch=""
 git_dirty=""
-if git_out=$(git -C "$project_dir" status --porcelain=v1 -b 2>/dev/null); then
+if git_out=$(GIT_OPTIONAL_LOCKS=0 git -C "$project_dir" status --porcelain=v1 -b 2>/dev/null); then
     first_line=${git_out%%$'\n'*}
     if [ "${first_line#\#\# }" != "$first_line" ]; then
         b=${first_line#\#\# }
