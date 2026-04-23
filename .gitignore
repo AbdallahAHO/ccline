@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+
+# Override common global ignores — these files are checked in for this repo
+!CLAUDE.md
