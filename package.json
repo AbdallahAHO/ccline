@@ -1,6 +1,6 @@
 {
   "name": "@abdallahaho/ccline",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "A feature-rich Claude Code statusline with session tracking, quota monitoring, peak hour detection, and burn rate projection. Works on macOS, Linux, and Windows (Git Bash / WSL).",
   "bin": {
     "ccline": "bin/install.js"

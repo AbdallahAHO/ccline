@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.4.0](https://github.com/AbdallahAHO/ccline/compare/v1.3.1...v1.4.0) (2026-04-23)
+
+
+### Features
+
+* **statusline:** render xhigh and max effort levels ([5dabe50](https://github.com/AbdallahAHO/ccline/commit/5dabe505dd5a7eb1b3abf75d054141faca2faa87))
+
 ## [1.3.1](https://github.com/AbdallahAHO/ccline/compare/v1.3.0...v1.3.1) (2026-04-23)
 
 
