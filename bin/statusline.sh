@@ -322,7 +322,11 @@ blocking_threshold=$(( ctx_size - 3000 ))
 # ── LINE 1: Model+Effort | Project (branch) +lines ───
 line1=""
 
+# Claude Code's effort ladder (as of 2.1.117): low < medium < high < xhigh < max.
+# Visual progression: quarter → half → full circle → bullseye → lightning.
 case "$effort" in
+    max)    line1+="${blue}${model_short}${reset} ${red}⚡ ${effort}${reset}" ;;
+    xhigh)  line1+="${blue}${model_short}${reset} ${red}◉ ${effort}${reset}" ;;
     high)   line1+="${blue}${model_short}${reset} ${magenta}● ${effort}${reset}" ;;
     medium) line1+="${blue}${model_short}${reset} ${white}◑ ${effort}${reset}" ;;
     low)    line1+="${blue}${model_short}${reset} ${dim}◔ ${effort}${reset}" ;;
