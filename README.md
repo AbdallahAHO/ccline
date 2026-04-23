@@ -8,9 +8,18 @@ A feature-rich statusline for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 **Line 1 — Identity & Project**
 ```
-O4.7 1M ● high 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-reviewer | ⎇ feat-x | → src/features/search
+O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-reviewer | ⎇ feat-x | → src/features/search
 ```
-- Compact model name with effort level
+- Compact model name with effort level — the full ladder is rendered distinctly:
+
+  | effort | glyph | color   | notes                                      |
+  |--------|-------|---------|--------------------------------------------|
+  | low    | `◔`   | dim     | minimal reasoning                          |
+  | medium | `◑`   | white   |                                            |
+  | high   | `●`   | magenta |                                            |
+  | xhigh  | `◉`   | red     | default on Opus 4.7 (v2.1.117+)            |
+  | max    | `⚡`   | red     | deepest reasoning, session-only by default |
+
 - Permission mode badge — `🛡 plan`, `✎ auto` (acceptEdits), or `⚡ bypass` (bypassPermissions). Hidden in default mode.
 - Output-style badge (e.g., `◎ Learning`) when not `default`
 - Vim mode indicator (`[N]` / `[I]`) when vim mode is on
@@ -90,6 +99,8 @@ The OAuth token (only needed for the API fallback and the `extra` line) is resol
 2. macOS Keychain
 3. `~/.claude/.credentials.json` (works on every platform)
 4. Linux `secret-tool`
+
+For a line-by-line walkthrough of the script, see [how-it-works.md](./how-it-works.md). For contribution and release guidelines, see [CLAUDE.md](./CLAUDE.md).
 
 ## Credits
 
