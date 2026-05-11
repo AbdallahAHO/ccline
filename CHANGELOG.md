@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/AbdallahAHO/ccline/compare/v1.4.0...v1.4.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* **statusline:** shell-escape resets_at fields in eval block ([ca7a8dc](https://github.com/AbdallahAHO/ccline/commit/ca7a8dcdf84349aee566f14c2b0bc96d70545aee))
+
 # [1.4.0](https://github.com/AbdallahAHO/ccline/compare/v1.3.1...v1.4.0) (2026-04-23)
 
 
