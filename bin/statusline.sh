@@ -47,6 +47,19 @@ color_for_pct() {
     fi
 }
 
+# ISO 4217 code → symbol. The usage API reports the account's billing currency
+# (e.g. EUR for European plans), so the spend line follows it instead of a
+# hardcoded "$". Unknown codes fall back to "<CODE> " to stay unambiguous.
+currency_symbol() {
+    case "$1" in
+        USD) printf '$' ;;
+        EUR) printf '€' ;;
+        GBP) printf '£' ;;
+        JPY) printf '¥' ;;
+        *)   printf '%s ' "$1" ;;
+    esac
+}
+
 build_bar() {
     local pct=$1
     local width=$2
@@ -188,6 +201,7 @@ eval "$(printf '%s' "$input" | jq -r '
   "seven_day_pct=" + (.rate_limits.seven_day.used_percentage // 0 | floor | tostring),
   "seven_day_reset=" + (.rate_limits.seven_day.resets_at // "" | @sh),
   "exceeds_200k=" + (.exceeds_200k_tokens // false | tostring),
+  "effort_level=" + (.effort.level // "" | @sh),
   "permission_mode=" + (.permission_mode // "" | @sh),
   "output_style=" + (.output_style.name // "" | @sh),
   "vim_mode=" + (.vim.mode // "" | @sh),
@@ -212,11 +226,16 @@ model_short=$(printf '%s' "$model_name" | sed -E \
     -e 's/ *\(1M context\)/ 1M/' \
     -e 's/ *\(200K context\)//')
 
-# Effort level (from settings.json)
-effort="default"
-settings_path="$HOME/.claude/settings.json"
-if [ -f "$settings_path" ]; then
-    effort=$(jq -r '.effortLevel // "default"' "$settings_path" 2>/dev/null)
+# Effort level — prefer the live value from the input JSON (.effort.level), which
+# reflects session-only overrides like `/effort max`. Older Claude Code builds
+# omit it, so fall back to the saved default in settings.json, then "default".
+effort="$effort_level"
+if [ -z "$effort" ] || [ "$effort" = "null" ]; then
+    effort="default"
+    settings_path="$HOME/.claude/settings.json"
+    if [ -f "$settings_path" ]; then
+        effort=$(jq -r '.effortLevel // "default"' "$settings_path" 2>/dev/null)
+    fi
 fi
 
 # ── Directory & git ────────────────────────────────────
@@ -380,9 +399,11 @@ if [ -n "$cwd_display" ]; then
     line1+="${sep}${dim}→${reset} ${white}${cwd_display}${reset}"
 fi
 
-# 200k+ downgrade warning
+# Crossed the fixed 200k-token threshold. This is NOT a downgrade — the flag is
+# independent of context-window size; on 1M models it just means long-context
+# (2× pricing) territory. Yellow caution, not a red error.
 if [ "$exceeds_200k" = "true" ]; then
-    line1+=" ${red}⚠ downgraded${reset}"
+    line1+=" ${yellow}⚠ 200k+${reset}"
 fi
 
 # ── LINE 2: Session stats ─────────────────────────────
@@ -564,6 +585,7 @@ cache_max_age=60
 
 needs_refresh=true
 usage_data=""
+usage_fresh=false   # true only for a live API hit or a ≤60s cache of one
 
 if [ -f "$cache_file" ]; then
     cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
@@ -571,6 +593,7 @@ if [ -f "$cache_file" ]; then
     if [ -n "$cache_mtime" ] && [ "$(( now - cache_mtime ))" -lt "$cache_max_age" ] 2>/dev/null; then
         needs_refresh=false
         usage_data=$(cat "$cache_file" 2>/dev/null)
+        usage_fresh=true
     fi
 fi
 
@@ -586,6 +609,7 @@ if $needs_refresh; then
             "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
         if [ -n "$response" ] && printf '%s' "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
             usage_data="$response"
+            usage_fresh=true
             ( umask 077; printf '%s' "$response" > "$cache_file" )
         fi
     fi
@@ -604,19 +628,60 @@ if [ -n "$usage_data" ] && printf '%s' "$usage_data" | jq -e . >/dev/null 2>&1; 
         rate_lines=$(render_rate_lines "$f_pct" "$f_reset_iso" "$s_pct" "$s_reset_iso")
     fi
 
+    # Per-model weekly meters (e.g. Fable) from the new limits[] array. Max plans
+    # cap each premium model's weekly usage separately from the overall weekly_all
+    # bucket; a "weekly_scoped" entry carries that cap and names its model in
+    # .scope.model.display_name. Render one row per model so this generalizes to
+    # whatever models Anthropic scopes next. Gated on usage_fresh so the row is
+    # only shown from live/≤60s API data — never a stale offline-fallback cache —
+    # and thus disappears when the API stops returning it (e.g. after Jul 7).
+    scoped_rows=$(printf '%s' "$usage_data" | jq -r '
+        (.limits // [])[]
+        | select(.kind == "weekly_scoped" and (.scope.model.display_name // "") != "")
+        | "\(.percent // 0)\t\(.scope.model.display_name)\t\(.resets_at // "")"
+    ' 2>/dev/null)
+    if [ -n "$scoped_rows" ] && [ "$usage_fresh" = true ]; then
+        while IFS=$'\t' read -r m_pct m_name m_reset; do
+            [ -z "$m_name" ] && continue
+            m_pct=$(printf '%.0f' "$m_pct" 2>/dev/null || echo 0)
+            m_label=$(printf '%s' "$m_name" | tr '[:upper:]' '[:lower:]')
+            # Pad the label to 8 cols so its bar lines up with current/weekly/extra.
+            m_pad=$(( 8 - ${#m_label} ))
+            [ "$m_pad" -lt 1 ] && m_pad=1
+            m_spaces=$(printf '%*s' "$m_pad" '')
+            m_bar=$(build_bar "$m_pct" 8)
+            m_color=$(color_for_pct "$m_pct")
+            m_pct_fmt=$(printf "%3d" "$m_pct")
+            m_reset_fmt=$(format_reset_time "$m_reset" "datetime")
+            rate_lines+="\n${white}${m_label}${reset}${m_spaces}${m_bar} ${m_color}${m_pct_fmt}%${reset} ${dim}resets${reset} ${white}${m_reset_fmt}${reset}"
+            # Fable is plan-included only through Jul 7, 2026, then credits-only.
+            # Flag it while that window is open; after Jul 7 the scoped bucket
+            # (and this whole row) drops out of the API on its own.
+            if [ "$m_label" = "fable" ] && [[ "$(date +%Y-%m-%d)" < "2026-07-08" ]]; then
+                rate_lines+="  ${yellow}⚠ plan ends jul 7${reset}"
+            fi
+        done <<EOF
+$scoped_rows
+EOF
+    fi
+
     # Extra-usage line (only surfaced via API)
     extra_enabled=$(printf '%s' "$usage_data" | jq -r '.extra_usage.is_enabled // false')
     if [ "$extra_enabled" = "true" ]; then
         extra_pct=$(printf '%s' "$usage_data" | jq -r '.extra_usage.utilization // 0' | awk '{printf "%.0f", $1}')
-        extra_used=$(printf '%s' "$usage_data" | jq -r '.extra_usage.used_credits // 0' | awk '{printf "%.2f", $1/100}')
-        extra_limit=$(printf '%s' "$usage_data" | jq -r '.extra_usage.monthly_limit // 0' | awk '{printf "%.2f", $1/100}')
+        # Currency + minor-unit scale are API-driven now (e.g. EUR, 2 decimals).
+        extra_currency=$(printf '%s' "$usage_data" | jq -r '.extra_usage.currency // "USD"')
+        extra_decimals=$(printf '%s' "$usage_data" | jq -r '.extra_usage.decimal_places // 2')
+        extra_sym=$(currency_symbol "$extra_currency")
+        extra_used=$(printf '%s' "$usage_data" | jq -r '.extra_usage.used_credits // 0' | awk -v e="$extra_decimals" '{printf "%.2f", $1 / (10 ^ e)}')
+        extra_limit=$(printf '%s' "$usage_data" | jq -r '.extra_usage.monthly_limit // 0' | awk -v e="$extra_decimals" '{printf "%.2f", $1 / (10 ^ e)}')
         extra_bar=$(build_bar "$extra_pct" 8)
         extra_pct_color=$(color_for_pct "$extra_pct")
 
         extra_reset=$(date -v+1m -v1d +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]')
         [ -z "$extra_reset" ] && extra_reset=$(date -d "$(date +%Y-%m-01) +1 month" +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]')
 
-        rate_lines+="\n${white}extra${reset}   ${extra_bar} ${extra_pct_color}\$${extra_used}${dim}/${reset}${white}\$${extra_limit}${reset} ${dim}resets${reset} ${white}${extra_reset}${reset}"
+        rate_lines+="\n${white}extra${reset}   ${extra_bar} ${extra_pct_color}${extra_sym}${extra_used}${dim}/${reset}${white}${extra_sym}${extra_limit}${reset} ${dim}resets${reset} ${white}${extra_reset}${reset}"
     fi
 fi
 

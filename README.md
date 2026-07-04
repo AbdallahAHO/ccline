@@ -20,13 +20,15 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
   | xhigh  | `◉`   | red     | default on Opus 4.7 (v2.1.117+)            |
   | max    | `⚡`   | red     | deepest reasoning, session-only by default |
 
+  The badge reflects the **live session** effort — including mid-session `/effort` changes — read from the input JSON's `effort.level`, falling back to the saved `settings.json` default.
+
 - Permission mode badge — `🛡 plan`, `✎ auto` (acceptEdits), or `⚡ bypass` (bypassPermissions). Hidden in default mode.
 - Output-style badge (e.g., `◎ Learning`) when not `default`
 - Vim mode indicator (`[N]` / `[I]`) when vim mode is on
 - Project root with git branch and dirty indicator (single `git status` call)
 - Lines changed this session
 - Subagent name (`@code-reviewer`) and worktree (`⎇ feat-x`) when active
-- `⚠ downgraded` flag when Claude Code has fallen back to the 200k-context tier
+- `⚠ 200k+` flag when the latest response crosses the fixed 200k-token threshold (long-context 2× pricing on 1M models — not a downgrade; the flag is independent of context-window size)
 - Current working directory (relative to project, fish-style abbreviation if outside)
 
 **Line 2 — Session Health**
@@ -39,15 +41,20 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
 - Running session cost (yellow at $5, red at $10)
 - API-latency ratio — what fraction of total wall time was spent waiting on the model
 
-**Lines 3-4 — Quota & Rate Limits**
+**Lines 3+ — Quota & Rate Limits**
 ```
 current ●●●●●●●○○○  68% resets 3:42pm  🔥 PEAK til 8pm
 weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day ⚡
+fable   ●●●●○○○○○○  46% resets apr 3, 7:00pm  ⚠ plan ends jul 7
+extra   ●○○○○○○○○○  €0.95/€40.00 resets aug 1
 ```
 - Rate limits read directly from Claude Code's input JSON (freshest data); OAuth API serves as a fallback when input is empty (cached 60s at `${TMPDIR:-/tmp}/claude-$UID/`)
 - Peak hour detection (05:00–11:00 PT) with local end time — only shows when active
 - Weekly burn rate projection — green if on pace, yellow if tight, red if you'll hit the limit
 - `⚡ burning fast` on either window when you're tracking ahead of schedule
+- **Per-model weekly meters** — Max plans cap each premium model's weekly usage separately from the overall weekly bucket. Any model the API scopes (`weekly_scoped` in `limits[]`) gets its own row labelled by name (e.g. `fable`, `opus`). Rendered only from fresh API data, so the row disappears cleanly when the API stops returning it (e.g. after a plan window ends) or is unreachable.
+- **Fable plan-window badge** — while Fable is plan-included (through Jul 7, 2026), the `fable` row carries a `⚠ plan ends jul 7` reminder; afterward the scoped bucket leaves the API and the row disappears on its own, with usage shifting to the credit-based `extra` line.
+- **`extra` credit line** follows the account's billing currency reported by the API (`$`/`€`/`£`/`¥`, else the ISO code) instead of assuming USD
 
 ## Install
 
