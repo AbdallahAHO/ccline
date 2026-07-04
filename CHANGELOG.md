@@ -1,5 +1,12 @@
 # Changelog
 
+# [1.5.0](https://github.com/AbdallahAHO/ccline/compare/v1.4.1...v1.5.0) (2026-07-04)
+
+
+### Features
+
+* **statusline:** Fable per-model meters, live effort source, currency ([4075235](https://github.com/AbdallahAHO/ccline/commit/40752355c2b38d96f91d449838145771d9bde9b3))
+
 ## [1.4.1](https://github.com/AbdallahAHO/ccline/compare/v1.4.0...v1.4.1) (2026-05-11)
 
 
