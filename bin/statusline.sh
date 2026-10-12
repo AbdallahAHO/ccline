@@ -572,6 +572,43 @@ render_rate_lines() {
     printf '%s' "$out"
 }
 
+# ── Spend-row rendering (extra credits on Pro/Max) ──
+# Percent comes from used/limit, since the API's utilization can be null.
+# Money is compacted in the same awk pass: $10K, $1.5K, $350, $12.41, €40.
+render_spend_lines() {
+    local used_minor=$1 limit_minor=$2 decimals=$3 sym=$4
+    local month_end reset_fmt pct used_fmt limit_fmt left_fmt badge=""
+    month_end=$(date -j -v1d -v+1m -v0H -v0M -v0S +%s 2>/dev/null || date -d "$(date +%Y-%m-01) +1 month" +%s 2>/dev/null)
+    reset_fmt=$(format_reset_time "$month_end" "date")
+
+    IFS=$'\t' read -r pct used_fmt limit_fmt left_fmt <<EOF
+$(awk -v u="$used_minor" -v l="$limit_minor" -v e="$decimals" -v sym="$sym" '
+function money(a,   x) {
+    if (a >= 999950) { x = sprintf("%.1f", a / 1000000); sub(/\.0$/, "", x); return sym x "M" }
+    if (a >= 999.5)  { x = sprintf("%.1f", a / 1000);    sub(/\.0$/, "", x); return sym x "K" }
+    if (a >= 100)    return sym sprintf("%.0f", a)
+    x = sprintf("%.2f", a); sub(/\.00$/, "", x); return sym x
+}
+BEGIN {
+    u /= 10 ^ e; l /= 10 ^ e
+    # Rounded like the claude.ai usage page, but held at 99% while money is
+    # left so the cap badge never fires early.
+    pct = l > 0 ? int(u * 100 / l + 0.5) : 0
+    if (pct >= 100 && u < l) pct = 99
+    printf "%d\t%s\t%s\t%s\n", pct, money(u), money(l), money(l > u ? l - u : 0)
+}')
+EOF
+    [ -n "$pct" ] || return
+
+    # 50% / 80% / cap badges, styled like the PEAK badge.
+    if [ "$pct" -ge 100 ]; then badge="  ⛔ ${red}CAP HIT${reset} ${dim}til${reset} ${white}${reset_fmt}${reset}"
+    elif [ "$pct" -ge 80 ]; then badge="  🚨 ${red}80%+${reset} ${white}${left_fmt}${reset} ${dim}left${reset}"
+    elif [ "$pct" -ge 50 ]; then badge="  ⚠ ${yellow}50%+${reset} ${white}${left_fmt}${reset} ${dim}left${reset}"
+    fi
+
+    printf '%s' "${white}extra${reset}   $(build_bar "$pct" 8) $(color_for_pct "$pct")$(printf '%3d' "$pct")%${reset} ${white}${used_fmt}${dim}/${reset}${white}${limit_fmt}${reset} ${dim}resets${reset} ${white}${reset_fmt}${reset}${badge}"
+}
+
 # ── Rate limits: prefer input JSON (freshest), fall back to OAuth API ──
 # Presence, not value: a fresh 0% from Claude Code is still authoritative.
 rate_lines=""
@@ -657,7 +694,6 @@ usage_vars=""
   "s_pct=" + (.seven_day.utilization // 0 | . + 0.5 | floor | @sh),
   "s_reset_iso=" + (.seven_day.resets_at // "" | @sh),
   "extra_enabled=" + (.extra_usage.is_enabled // false | @sh),
-  "extra_pct=" + (.extra_usage.utilization // 0 | . + 0.5 | floor | @sh),
   "extra_currency=" + (.extra_usage.currency // "USD" | @sh),
   "extra_decimals=" + (.extra_usage.decimal_places // 2 | @sh),
   "extra_used_minor=" + (.extra_usage.used_credits // 0 | @sh),
@@ -703,20 +739,11 @@ $scoped_rows
 EOF
     fi
 
-    # Extra-usage line (only surfaced via API)
+    # Extra-usage credits (only surfaced via API). Currency and minor-unit
+    # scale are API-driven (e.g. EUR, 2 decimals).
     if [ "$extra_enabled" = "true" ]; then
-        # Currency + minor-unit scale are API-driven now (e.g. EUR, 2 decimals).
-        extra_sym=$(currency_symbol "$extra_currency")
-        read -r extra_used extra_limit <<EOF
-$(awk -v u="$extra_used_minor" -v l="$extra_limit_minor" -v e="$extra_decimals" 'BEGIN {printf "%.2f %.2f", u / (10 ^ e), l / (10 ^ e)}')
-EOF
-        extra_bar=$(build_bar "$extra_pct" 8)
-        extra_pct_color=$(color_for_pct "$extra_pct")
-
-        extra_reset=$(date -v+1m -v1d +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-        [ -z "$extra_reset" ] && extra_reset=$(date -d "$(date +%Y-%m-01) +1 month" +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-
-        rate_lines+="\n${white}extra${reset}   ${extra_bar} ${extra_pct_color}${extra_sym}${extra_used}${dim}/${reset}${white}${extra_sym}${extra_limit}${reset} ${dim}resets${reset} ${white}${extra_reset}${reset}"
+        spend_rows=$(render_spend_lines "$extra_used_minor" "$extra_limit_minor" "$extra_decimals" "$(currency_symbol "$extra_currency")")
+        [ -n "$spend_rows" ] && rate_lines+="\n${spend_rows}"
     fi
 fi
 
