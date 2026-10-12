@@ -131,22 +131,19 @@ format_reset_time() {
     epoch=$(to_epoch "$val")
     [ -z "$epoch" ] && return
 
-    local result=""
+    # Inside the next 6 days a weekday ("sat 12am") is unambiguous and shorter
+    # than a date. ":00" is dropped, and both date flavours are lowercased.
+    local fmt
     case "$style" in
-        time)
-            result=$(date -d "@$epoch" +"%l:%M%P" 2>/dev/null | sed 's/^ //; s/\.//g')
-            [ -z "$result" ] && result=$(date -j -r "$epoch" +"%l:%M%p" 2>/dev/null | sed 's/^ //; s/\.//g' | tr '[:upper:]' '[:lower:]')
-            ;;
-        datetime)
-            result=$(date -d "@$epoch" +"%b %-d, %l:%M%P" 2>/dev/null | sed 's/  / /g; s/^ //; s/\.//g')
-            [ -z "$result" ] && result=$(date -j -r "$epoch" +"%b %-d, %l:%M%p" 2>/dev/null | sed 's/  / /g; s/^ //; s/\.//g' | tr '[:upper:]' '[:lower:]')
-            ;;
-        *)
-            result=$(date -d "@$epoch" +"%b %-d" 2>/dev/null)
-            [ -z "$result" ] && result=$(date -j -r "$epoch" +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-            ;;
+        time)     fmt="%l:%M%p" ;;
+        datetime) fmt="%b %-d, %l:%M%p"
+                  [ $(( epoch - $(date +%s) )) -lt 518400 ] && fmt="%a %l:%M%p" ;;
+        *)        fmt="%b %-d" ;;
     esac
-    printf '%s' "$result"
+
+    local result
+    result=$(date -d "@$epoch" +"$fmt" 2>/dev/null || date -j -r "$epoch" +"$fmt" 2>/dev/null)
+    printf '%s' "$result" | tr '[:upper:]' '[:lower:]' | sed 's/  */ /g; s/^ //; s/\.//g; s/:00//'
 }
 
 # Portable file-birth-time lookup.
