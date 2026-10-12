@@ -581,23 +581,35 @@ cache_dir="${TMPDIR:-/tmp}/claude-${uid}"
 mkdir -p "$cache_dir" 2>/dev/null
 chmod 700 "$cache_dir" 2>/dev/null
 cache_file="${cache_dir}/statusline-usage-cache.json"
+backoff_file="${cache_dir}/statusline-usage-backoff"
 cache_max_age=60
+stale_max_age=900   # oldest cache still shown while the API is failing
 
 needs_refresh=true
 usage_data=""
 usage_fresh=false   # true only for a live API hit or a ≤60s cache of one
+now=$(date +%s)
+cache_age=""
 
 if [ -f "$cache_file" ]; then
     cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
-    now=$(date +%s)
-    if [ -n "$cache_mtime" ] && [ "$(( now - cache_mtime ))" -lt "$cache_max_age" ] 2>/dev/null; then
+    [ -n "$cache_mtime" ] && cache_age=$(( now - cache_mtime ))
+    if [ -n "$cache_age" ] && [ "$cache_age" -lt "$cache_max_age" ] 2>/dev/null; then
         needs_refresh=false
         usage_data=$(cat "$cache_file" 2>/dev/null)
         usage_fresh=true
     fi
 fi
 
-if $needs_refresh; then
+# A failed fetch records the epoch to retry after, so a failing endpoint
+# costs one request per backoff window across all sessions instead of one
+# per render. Unreadable or implausible values are ignored.
+backoff_until=0
+[ -f "$backoff_file" ] && read -r backoff_until < "$backoff_file"
+case "$backoff_until" in ''|*[!0-9]*) backoff_until=0 ;; esac
+[ "$backoff_until" -gt $(( now + 3600 )) ] && backoff_until=0
+
+if $needs_refresh && [ "$now" -ge "$backoff_until" ]; then
     token=$(get_oauth_token)
     if [ -n "$token" ] && [ "$token" != "null" ]; then
         response=$(curl -s --max-time 3 -w '\n%{http_code}' \
@@ -615,11 +627,20 @@ if $needs_refresh; then
             usage_data="$response"
             usage_fresh=true
             ( umask 077; printf '%s' "$response" > "$cache_file" )
+            rm -f "$backoff_file"
+        else
+            # 429/403 waits as long as Claude Code's own backoff; timeouts,
+            # 5xx and offline retry sooner.
+            case "$http_code" in 429|403) backoff=300 ;; *) backoff=60 ;; esac
+            ( umask 077; printf '%s\n' "$(( now + backoff ))" > "$backoff_file" )
         fi
     fi
-    if [ -z "$usage_data" ] && [ -f "$cache_file" ]; then
-        usage_data=$(cat "$cache_file" 2>/dev/null)
-    fi
+fi
+
+# While the API is failing, a recent cache beats no rows; an old one is
+# more likely wrong (e.g. from before an account switch) than useful.
+if [ -z "$usage_data" ] && [ -n "$cache_age" ] && [ "$cache_age" -le "$stale_max_age" ]; then
+    usage_data=$(cat "$cache_file" 2>/dev/null)
 fi
 
 # Single jq parse of the usage response, like the input-JSON eval above.
