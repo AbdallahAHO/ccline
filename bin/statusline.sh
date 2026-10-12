@@ -685,7 +685,7 @@ if [ -n "$usage_vars" ]; then
     # .scope.model.display_name. Render one row per model so this generalizes to
     # whatever models Anthropic scopes next. Gated on usage_fresh so the row is
     # only shown from live/≤60s API data — never a stale offline-fallback cache —
-    # and thus disappears when the API stops returning it (e.g. after Jul 7).
+    # and thus disappears when the API stops returning it.
     if [ -n "$scoped_rows" ] && [ "$usage_fresh" = true ]; then
         while IFS=$'\t' read -r m_pct m_name m_reset; do
             [ -z "$m_name" ] && continue
@@ -701,12 +701,6 @@ if [ -n "$usage_vars" ]; then
             m_reset_fmt=$(format_reset_time "$m_reset" "datetime")
             rate_lines+="\n${white}${m_label}${reset}${m_spaces}${m_bar} ${m_color}${m_pct_fmt}%${reset}"
             [ -n "$m_reset_fmt" ] && rate_lines+=" ${dim}resets${reset} ${white}${m_reset_fmt}${reset}"
-            # Fable is plan-included only through Jul 7, 2026, then credits-only.
-            # Flag it while that window is open; after Jul 7 the scoped bucket
-            # (and this whole row) drops out of the API on its own.
-            if [ "$m_label" = "fable" ] && [[ "$(date +%Y-%m-%d)" < "2026-07-08" ]]; then
-                rate_lines+="  ${yellow}⚠ plan ends jul 7${reset}"
-            fi
         done <<EOF
 $scoped_rows
 EOF

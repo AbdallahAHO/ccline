@@ -45,7 +45,7 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
 ```
 current ●●●●●●●○○○  68% resets 3:42pm  🔥 PEAK til 8pm
 weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day ⚡
-fable   ●●●●○○○○○○  46% resets apr 3, 7:00pm  ⚠ plan ends jul 7
+fable   ●●●●○○○○○○  46% resets apr 3, 7:00pm
 extra   ●○○○○○○○○○  €0.95/€40.00 resets aug 1
 ```
 - Rate limits read directly from Claude Code's input JSON (freshest data); OAuth API serves as a fallback when input is empty (cached 60s at `${TMPDIR:-/tmp}/claude-$UID/`)
@@ -53,7 +53,6 @@ extra   ●○○○○○○○○○  €0.95/€40.00 resets aug 1
 - Weekly burn rate projection — green if on pace, yellow if tight, red if you'll hit the limit
 - `⚡ burning fast` on either window when you're tracking ahead of schedule
 - **Per-model weekly meters** — Max plans cap each premium model's weekly usage separately from the overall weekly bucket. Any model the API scopes (`weekly_scoped` in `limits[]`) gets its own row labelled by name (e.g. `fable`, `opus`). Rendered only from fresh API data, so the row disappears cleanly when the API stops returning it (e.g. after a plan window ends) or is unreachable.
-- **Fable plan-window badge** — while Fable is plan-included (through Jul 7, 2026), the `fable` row carries a `⚠ plan ends jul 7` reminder; afterward the scoped bucket leaves the API and the row disappears on its own, with usage shifting to the credit-based `extra` line.
 - **`extra` credit line** follows the account's billing currency reported by the API (`$`/`€`/`£`/`¥`, else the ISO code) instead of assuming USD
 
 ## Install
