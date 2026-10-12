@@ -450,7 +450,7 @@ if [ "$total_duration" -gt 0 ] 2>/dev/null && [ "$api_duration" -gt 0 ] 2>/dev/n
 fi
 
 # ── OAuth token resolution ──────────────────────────────
-# macOS keychain → ~/.claude/.credentials.json → Linux secret-tool → env var.
+# env var → macOS keychain → ~/.claude/.credentials.json → Linux secret-tool.
 # The credentials.json path covers Windows (Git Bash / WSL) since neither
 # `security` nor `secret-tool` exist there.
 get_oauth_token() {

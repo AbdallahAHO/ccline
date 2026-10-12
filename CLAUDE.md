@@ -33,10 +33,10 @@ ccline/
 ## Design principles
 
 - **One script, no dependencies beyond the basics.** `bash`, `jq`, `curl`, `git` — nothing else. These are available everywhere Claude Code runs.
-- **Single `jq` parse.** All input JSON fields are hydrated in one `eval` block (see `how-it-works.md`). Don't add per-field `jq` calls — each one is a subprocess.
+- **Single `jq` parse per document.** All input JSON fields are hydrated in one `eval` block, and the usage API response in another (see `how-it-works.md`). Don't add per-field `jq` calls — each one is a subprocess.
 - **Degrade quietly.** Missing tool, missing field, API failure — the statusline should produce *less* output, never an error message and never a crash.
 - **Cross-platform by default.** Every `date` / `stat` call needs a BSD path and a GNU path. macOS ships BSD; Linux/WSL ships GNU; Git Bash is somewhere in between.
-- **No persistent state.** The only thing written to disk is a 60s OAuth cache under `${TMPDIR:-/tmp}/claude-${UID}/`. No pidfiles, no session files.
+- **No persistent state.** The only things written to disk are a 60s OAuth cache and a one-line fetch-backoff marker under `${TMPDIR:-/tmp}/claude-${UID}/`. No pidfiles, no session files.
 - **Minimal visual noise.** Badges hidden when they'd duplicate the default (e.g. permission-mode badge only renders when non-default). Don't add segments that fire on every render unless they carry signal.
 
 ## Contributing

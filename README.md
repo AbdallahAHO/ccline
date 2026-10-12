@@ -41,19 +41,31 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
 - Running session cost (yellow at $5, red at $10)
 - API-latency ratio — what fraction of total wall time was spent waiting on the model
 
-**Lines 3+ — Quota & Rate Limits**
+**Lines 3+ — Quota & Rate Limits (Pro / Max)**
 ```
-current ●●●●●●●○○○  68% resets 3:42pm  🔥 PEAK til 8pm
-weekly  ●●●●●●●●○○  81% resets apr 3, 7:00pm  ~22%/day ⚡
-fable   ●●●●○○○○○○  46% resets apr 3, 7:00pm
-extra   ●○○○○○○○○○  €0.95/€40.00 resets aug 1
+current ●●●●●○○○  68% resets 3:42pm  🔥 PEAK til 8pm
+weekly  ●●●●●●○○  81% resets fri 7pm  ~22%/day ⚡
+fable   ●●●○○○○○  46% resets fri 7pm
+extra   ●●●●○○○○  55% €22/€40 resets aug 1  ⚠ 50%+ €18 left
 ```
-- Rate limits read directly from Claude Code's input JSON (freshest data); OAuth API serves as a fallback when input is empty (cached 60s at `${TMPDIR:-/tmp}/claude-$UID/`)
+- Rate limits read directly from Claude Code's input JSON whenever it carries them, even at 0% (freshest data); the OAuth usage API covers the first render plus the per-model and `extra` rows (cached 60s at `${TMPDIR:-/tmp}/claude-$UID/`)
 - Peak hour detection (05:00–11:00 PT) with local end time — only shows when active
 - Weekly burn rate projection — green if on pace, yellow if tight, red if you'll hit the limit
 - `⚡ burning fast` on either window when you're tracking ahead of schedule
-- **Per-model weekly meters** — Max plans cap each premium model's weekly usage separately from the overall weekly bucket. Any model the API scopes (`weekly_scoped` in `limits[]`) gets its own row labelled by name (e.g. `fable`, `opus`). Rendered only from fresh API data, so the row disappears cleanly when the API stops returning it (e.g. after a plan window ends) or is unreachable.
-- **`extra` credit line** follows the account's billing currency reported by the API (`$`/`€`/`£`/`¥`, else the ISO code) instead of assuming USD
+- Resets inside the coming week show the weekday (`fri 7pm`); further out, the date (`apr 3, 7pm`)
+- **Per-model weekly meters** — Max plans cap each premium model's weekly usage separately from the overall weekly bucket. Any model the API scopes (`weekly_scoped` in `limits[]`) gets its own row labelled by name (e.g. `fable`, `opus`). Rendered only from fresh API data, so the row disappears cleanly when the API stops returning it or is unreachable.
+- **`extra` credit line** follows the account's billing currency reported by the API (`$`/`€`/`£`/`¥`, else the ISO code), compacts amounts (`$10K`, `$2.6K`, `$350`, `€0.95`), and flags `⚠ 50%+` / `🚨 80%+` with what's left, then `⛔ CAP HIT`
+
+**Lines 3+ — Spend (Enterprise)**
+```
+spend   ●○○○○○○○   7% $350/$5K resets nov 1  ▼ under pace
+pace    ●○○○○○○○  19% ~$30/day → $950  ✓ on track
+month   ●●○○○○○○  36% day 12/31 · $232/day left for 20d
+```
+Spend-billed plans have no session or weekly windows — the monthly credit cap is the whole budget — so these rows take the place of `current` / `weekly`:
+- **spend** — used vs. cap with the same badges as `extra`, plus `▲ over pace` / `▼ under pace` when spend runs more than 5 points ahead of or behind the share of the month gone
+- **pace** — average daily spend so far, projected to the reset: `✓ on track`, `⚠ tight` from 80% of the cap, `⚡ cap by <date>` when the cap lands before the reset
+- **month** — how far into the billing month you are, and the per-day budget that keeps you under the cap
 
 ## Install
 
@@ -68,7 +80,7 @@ If you already have a custom statusline, it's backed up to `statusline.sh.bak` f
 ## Requirements
 
 - `bash`, `jq`, `curl`, `git`
-- Claude Code with an active Max/Pro subscription (for rate limit bars)
+- Claude Code signed in with a Pro/Max plan (rate-limit bars) or an Enterprise seat (spend rows)
 
 ```bash
 # macOS
@@ -96,11 +108,11 @@ Restores your previous statusline if a backup exists, or removes it and cleans u
 
 ## How it works
 
-Claude Code pipes a JSON blob to the statusline script on every render. The script does a single `jq` parse via `eval`, then pulls rate limits directly from that blob when present — that data is always fresher than anything we could re-fetch. If the input JSON doesn't carry `rate_limits` (rare — only the very first render after launch), we fall back to the OAuth usage API, cached for 60s at `${TMPDIR:-/tmp}/claude-$UID/statusline-usage-cache.json` with `0700` perms.
+Claude Code pipes a JSON blob to the statusline script on every render. The script does a single `jq` parse via `eval`, then pulls rate limits directly from that blob when present — that data is always fresher than anything we could re-fetch. Whatever the blob lacks (the first render, per-model meters, `extra` credits, Enterprise spend) comes from the OAuth usage API, cached for 60s at `${TMPDIR:-/tmp}/claude-$UID/statusline-usage-cache.json` with `0700` perms and shared by every open session. When a fetch fails, ccline backs off — 5 minutes after a 429/403, 1 minute otherwise — and keeps showing the cached rows only while they are under 15 minutes old.
 
 Autocompact thresholds (`compact soon` / `compacting…` / `⛔ blocked`) mirror `src/services/compact/autoCompact.ts` in the Claude Code source: 20k / 13k / 3k below the model's context window.
 
-The OAuth token (only needed for the API fallback and the `extra` line) is resolved from (in order):
+The OAuth token (only needed for the API rows) is resolved from (in order):
 1. `$CLAUDE_CODE_OAUTH_TOKEN` environment variable
 2. macOS Keychain
 3. `~/.claude/.credentials.json` (works on every platform)
