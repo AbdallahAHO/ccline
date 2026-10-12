@@ -67,6 +67,8 @@ build_bar() {
     [ "$pct" -gt 100 ] 2>/dev/null && pct=100
 
     local filled=$(( pct * width / 100 ))
+    # Any usage gets a dot, so 7% doesn't read as untouched.
+    [ "$pct" -gt 0 ] 2>/dev/null && [ "$filled" -eq 0 ] && filled=1
     local empty=$(( width - filled ))
     local bar_color
     bar_color=$(color_for_pct "$pct")
@@ -196,6 +198,7 @@ eval "$(printf '%s' "$input" | jq -r '
   "lines_removed=" + (.cost.total_lines_removed // 0 | tostring),
   "api_duration=" + (.cost.total_api_duration_ms // 0 | tostring),
   "total_duration=" + (.cost.total_duration_ms // 0 | tostring),
+  "has_input_limits=" + ((.rate_limits.five_hour != null or .rate_limits.seven_day != null) | tostring),
   "five_hour_pct=" + (.rate_limits.five_hour.used_percentage // 0 | floor | tostring),
   "five_hour_reset=" + (.rate_limits.five_hour.resets_at // "" | @sh),
   "seven_day_pct=" + (.rate_limits.seven_day.used_percentage // 0 | floor | tostring),
@@ -509,7 +512,9 @@ render_rate_lines() {
     f_bar=$(build_bar "$f_pct" "$bar_width")
     f_color=$(color_for_pct "$f_pct")
     f_pct_fmt=$(printf "%3d" "$f_pct")
-    out+="${white}current${reset} ${f_bar} ${f_color}${f_pct_fmt}%${reset} ${dim}resets${reset} ${white}${f_reset_fmt}${reset}"
+    out+="${white}current${reset} ${f_bar} ${f_color}${f_pct_fmt}%${reset}"
+    # The 5h window has no reset time until the first message opens it.
+    [ -n "$f_reset_fmt" ] && out+=" ${dim}resets${reset} ${white}${f_reset_fmt}${reset}"
 
     if $is_peak; then
         out+="  🔥 ${red}PEAK${reset}"
@@ -563,15 +568,17 @@ render_rate_lines() {
         fi
     fi
 
-    out+="\n${white}weekly${reset}  ${s_bar} ${s_color}${s_pct_fmt}%${reset} ${dim}resets${reset} ${white}${s_reset_fmt}${reset}"
+    out+="\n${white}weekly${reset}  ${s_bar} ${s_color}${s_pct_fmt}%${reset}"
+    [ -n "$s_reset_fmt" ] && out+=" ${dim}resets${reset} ${white}${s_reset_fmt}${reset}"
     [ -n "$burn_rate" ] && out+="  ${burn_rate}"
 
     printf '%s' "$out"
 }
 
 # ── Rate limits: prefer input JSON (freshest), fall back to OAuth API ──
+# Presence, not value: a fresh 0% from Claude Code is still authoritative.
 rate_lines=""
-if [ "$five_hour_pct" -gt 0 ] 2>/dev/null || [ "$seven_day_pct" -gt 0 ] 2>/dev/null; then
+if [ "$has_input_limits" = true ]; then
     rate_lines=$(render_rate_lines "$five_hour_pct" "$five_hour_reset" "$seven_day_pct" "$seven_day_reset")
 fi
 
@@ -692,7 +699,8 @@ if [ -n "$usage_vars" ]; then
             m_color=$(color_for_pct "$m_pct")
             m_pct_fmt=$(printf "%3d" "$m_pct")
             m_reset_fmt=$(format_reset_time "$m_reset" "datetime")
-            rate_lines+="\n${white}${m_label}${reset}${m_spaces}${m_bar} ${m_color}${m_pct_fmt}%${reset} ${dim}resets${reset} ${white}${m_reset_fmt}${reset}"
+            rate_lines+="\n${white}${m_label}${reset}${m_spaces}${m_bar} ${m_color}${m_pct_fmt}%${reset}"
+            [ -n "$m_reset_fmt" ] && rate_lines+=" ${dim}resets${reset} ${white}${m_reset_fmt}${reset}"
             # Fable is plan-included only through Jul 7, 2026, then credits-only.
             # Flag it while that window is open; after Jul 7 the scoped bucket
             # (and this whole row) drops out of the API on its own.
