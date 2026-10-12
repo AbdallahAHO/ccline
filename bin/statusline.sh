@@ -600,14 +600,18 @@ fi
 if $needs_refresh; then
     token=$(get_oauth_token)
     if [ -n "$token" ] && [ "$token" != "null" ]; then
-        response=$(curl -s --max-time 3 \
+        response=$(curl -s --max-time 3 -w '\n%{http_code}' \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $token" \
             -H "anthropic-beta: oauth-2025-04-20" \
             -H "User-Agent: ccline-statusline" \
             "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
-        if [ -n "$response" ] && printf '%s' "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
+        http_code=${response##*$'\n'}
+        response=${response%$'\n'*}
+        # Judge by status, not by .five_hour: spend-billed plans (Enterprise)
+        # answer 200 with null five_hour/seven_day windows.
+        if [ "$http_code" = "200" ] && [ "${response:0:1}" = "{" ]; then
             usage_data="$response"
             usage_fresh=true
             ( umask 077; printf '%s' "$response" > "$cache_file" )
@@ -622,6 +626,7 @@ fi
 # Empty output means the cached/fetched body isn't usable JSON.
 usage_vars=""
 [ -n "$usage_data" ] && usage_vars=$(printf '%s' "$usage_data" | jq -r '
+  "has_windows=" + ((.five_hour != null or .seven_day != null) | @sh),
   "f_pct=" + (.five_hour.utilization // 0 | . + 0.5 | floor | @sh),
   "f_reset_iso=" + (.five_hour.resets_at // "" | @sh),
   "s_pct=" + (.seven_day.utilization // 0 | . + 0.5 | floor | @sh),
@@ -640,8 +645,9 @@ usage_vars=""
 if [ -n "$usage_vars" ]; then
     eval "$usage_vars"
 
-    # API-sourced rate lines if input JSON had none
-    if [ -z "$rate_lines" ]; then
+    # API-sourced rate lines if input JSON had none. Spend-billed plans have
+    # no session/weekly windows, so there is nothing to draw.
+    if [ -z "$rate_lines" ] && [ "$has_windows" = true ]; then
         rate_lines=$(render_rate_lines "$f_pct" "$f_reset_iso" "$s_pct" "$s_reset_iso")
     fi
 
@@ -697,6 +703,8 @@ fi
 # ── Output ──────────────────────────────────────────────
 printf "%b\n" "$line1"
 printf "%b\n" "$line2"
+# Rows append with a leading "\n"; drop it when no window rows came first.
+rate_lines=${rate_lines#\\n}
 [ -n "$rate_lines" ] && printf "%b" "$rate_lines"
 
 exit 0
