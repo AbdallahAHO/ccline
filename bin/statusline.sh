@@ -618,13 +618,30 @@ if $needs_refresh; then
     fi
 fi
 
-if [ -n "$usage_data" ] && printf '%s' "$usage_data" | jq -e . >/dev/null 2>&1; then
+# Single jq parse of the usage response, like the input-JSON eval above.
+# Empty output means the cached/fetched body isn't usable JSON.
+usage_vars=""
+[ -n "$usage_data" ] && usage_vars=$(printf '%s' "$usage_data" | jq -r '
+  "f_pct=" + (.five_hour.utilization // 0 | . + 0.5 | floor | @sh),
+  "f_reset_iso=" + (.five_hour.resets_at // "" | @sh),
+  "s_pct=" + (.seven_day.utilization // 0 | . + 0.5 | floor | @sh),
+  "s_reset_iso=" + (.seven_day.resets_at // "" | @sh),
+  "extra_enabled=" + (.extra_usage.is_enabled // false | @sh),
+  "extra_pct=" + (.extra_usage.utilization // 0 | . + 0.5 | floor | @sh),
+  "extra_currency=" + (.extra_usage.currency // "USD" | @sh),
+  "extra_decimals=" + (.extra_usage.decimal_places // 2 | @sh),
+  "extra_used_minor=" + (.extra_usage.used_credits // 0 | @sh),
+  "extra_limit_minor=" + (.extra_usage.monthly_limit // 0 | @sh),
+  "scoped_rows=" + ([(.limits // [])[]
+      | select(.kind == "weekly_scoped" and (.scope.model.display_name // "") != "")
+      | "\(.percent // 0)\t\(.scope.model.display_name)\t\(.resets_at // "")"] | join("\n") | @sh)
+' 2>/dev/null)
+
+if [ -n "$usage_vars" ]; then
+    eval "$usage_vars"
+
     # API-sourced rate lines if input JSON had none
     if [ -z "$rate_lines" ]; then
-        f_pct=$(printf '%s' "$usage_data" | jq -r '.five_hour.utilization // 0' | awk '{printf "%.0f", $1}')
-        f_reset_iso=$(printf '%s' "$usage_data" | jq -r '.five_hour.resets_at // empty')
-        s_pct=$(printf '%s' "$usage_data" | jq -r '.seven_day.utilization // 0' | awk '{printf "%.0f", $1}')
-        s_reset_iso=$(printf '%s' "$usage_data" | jq -r '.seven_day.resets_at // empty')
         rate_lines=$(render_rate_lines "$f_pct" "$f_reset_iso" "$s_pct" "$s_reset_iso")
     fi
 
@@ -635,11 +652,6 @@ if [ -n "$usage_data" ] && printf '%s' "$usage_data" | jq -e . >/dev/null 2>&1; 
     # whatever models Anthropic scopes next. Gated on usage_fresh so the row is
     # only shown from live/≤60s API data — never a stale offline-fallback cache —
     # and thus disappears when the API stops returning it (e.g. after Jul 7).
-    scoped_rows=$(printf '%s' "$usage_data" | jq -r '
-        (.limits // [])[]
-        | select(.kind == "weekly_scoped" and (.scope.model.display_name // "") != "")
-        | "\(.percent // 0)\t\(.scope.model.display_name)\t\(.resets_at // "")"
-    ' 2>/dev/null)
     if [ -n "$scoped_rows" ] && [ "$usage_fresh" = true ]; then
         while IFS=$'\t' read -r m_pct m_name m_reset; do
             [ -z "$m_name" ] && continue
@@ -666,15 +678,12 @@ EOF
     fi
 
     # Extra-usage line (only surfaced via API)
-    extra_enabled=$(printf '%s' "$usage_data" | jq -r '.extra_usage.is_enabled // false')
     if [ "$extra_enabled" = "true" ]; then
-        extra_pct=$(printf '%s' "$usage_data" | jq -r '.extra_usage.utilization // 0' | awk '{printf "%.0f", $1}')
         # Currency + minor-unit scale are API-driven now (e.g. EUR, 2 decimals).
-        extra_currency=$(printf '%s' "$usage_data" | jq -r '.extra_usage.currency // "USD"')
-        extra_decimals=$(printf '%s' "$usage_data" | jq -r '.extra_usage.decimal_places // 2')
         extra_sym=$(currency_symbol "$extra_currency")
-        extra_used=$(printf '%s' "$usage_data" | jq -r '.extra_usage.used_credits // 0' | awk -v e="$extra_decimals" '{printf "%.2f", $1 / (10 ^ e)}')
-        extra_limit=$(printf '%s' "$usage_data" | jq -r '.extra_usage.monthly_limit // 0' | awk -v e="$extra_decimals" '{printf "%.2f", $1 / (10 ^ e)}')
+        read -r extra_used extra_limit <<EOF
+$(awk -v u="$extra_used_minor" -v l="$extra_limit_minor" -v e="$extra_decimals" 'BEGIN {printf "%.2f %.2f", u / (10 ^ e), l / (10 ^ e)}')
+EOF
         extra_bar=$(build_bar "$extra_pct" 8)
         extra_pct_color=$(color_for_pct "$extra_pct")
 
