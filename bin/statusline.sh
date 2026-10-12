@@ -70,8 +70,8 @@ build_bar() {
     # Any usage gets a dot, so 7% doesn't read as untouched.
     [ "$pct" -gt 0 ] 2>/dev/null && [ "$filled" -eq 0 ] && filled=1
     local empty=$(( width - filled ))
-    local bar_color
-    bar_color=$(color_for_pct "$pct")
+    local bar_color="${3:-}"   # optional override, e.g. dim for neutral meters
+    [ -z "$bar_color" ] && bar_color=$(color_for_pct "$pct")
 
     local filled_str="" empty_str=""
     local i
@@ -572,30 +572,55 @@ render_rate_lines() {
     printf '%s' "$out"
 }
 
-# ── Spend-row rendering (extra credits on Pro/Max) ──
+# ── Spend-row rendering ──
+# Pro/Max get one "extra" row for add-on credits. Spend-billed plans
+# (Enterprise) have no session/weekly windows, so the credits are the whole
+# budget: a spend row plus pace (month-end projection) and month (time gone,
+# budget left per day) rows in the slots current/weekly would use.
 # Percent comes from used/limit, since the API's utilization can be null.
-# Money is compacted in the same awk pass: $10K, $1.5K, $350, $12.41, €40.
+# One awk pass also compacts money: $10K, $1.5K, $350, $12.41, €40.
 render_spend_lines() {
-    local used_minor=$1 limit_minor=$2 decimals=$3 sym=$4
-    local month_end reset_fmt pct used_fmt limit_fmt left_fmt badge=""
+    local used_minor=$1 limit_minor=$2 decimals=$3 sym=$4 has_windows=$5
+    local month_start month_end reset_fmt badge=""
+    local pct used_fmt limit_fmt left_fmt per_day_fmt projected_fmt proj_pct
+    local month_pct day_n days_total days_left budget_fmt cap_epoch
+    month_start=$(date -j -v1d -v0H -v0M -v0S +%s 2>/dev/null || date -d "$(date +%Y-%m-01)" +%s 2>/dev/null)
     month_end=$(date -j -v1d -v+1m -v0H -v0M -v0S +%s 2>/dev/null || date -d "$(date +%Y-%m-01) +1 month" +%s 2>/dev/null)
     reset_fmt=$(format_reset_time "$month_end" "date")
 
-    IFS=$'\t' read -r pct used_fmt limit_fmt left_fmt <<EOF
-$(awk -v u="$used_minor" -v l="$limit_minor" -v e="$decimals" -v sym="$sym" '
+    IFS=$'\t' read -r pct used_fmt limit_fmt left_fmt per_day_fmt projected_fmt proj_pct \
+        month_pct day_n days_total days_left budget_fmt cap_epoch <<EOF
+$(awk -v u="$used_minor" -v l="$limit_minor" -v e="$decimals" -v sym="$sym" \
+      -v now="$(date +%s)" -v s="${month_start:-0}" -v r="${month_end:-0}" '
 function money(a,   x) {
     if (a >= 999950) { x = sprintf("%.1f", a / 1000000); sub(/\.0$/, "", x); return sym x "M" }
     if (a >= 999.5)  { x = sprintf("%.1f", a / 1000);    sub(/\.0$/, "", x); return sym x "K" }
     if (a >= 100)    return sym sprintf("%.0f", a)
     x = sprintf("%.2f", a); sub(/\.00$/, "", x); return sym x
 }
+function rate(a) { return a >= 10 ? int(a + 0.5) : a }
 BEGIN {
     u /= 10 ^ e; l /= 10 ^ e
+    left = l > u ? l - u : 0
     # Rounded like the claude.ai usage page, but held at 99% while money is
     # left so the cap badge never fires early.
     pct = l > 0 ? int(u * 100 / l + 0.5) : 0
     if (pct >= 100 && u < l) pct = 99
-    printf "%d\t%s\t%s\t%s\n", pct, money(u), money(l), money(l > u ? l - u : 0)
+
+    # Pace: average daily spend so far, projected to the reset. The first
+    # half-day counts as half a day so one early session cannot spike it.
+    total = (r - s) / 86400; if (total <= 0) total = 1
+    el = (now - s) / 86400; if (el < 0.5) el = 0.5
+    days_left = (r - now) / 86400; if (days_left < 0) days_left = 0
+    pd = u / el; proj = pd * total
+    cap = (pd > 0 && left > 0) ? int(now + left / pd * 86400) : 0
+    if (cap >= r) cap = 0
+
+    printf "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\n",
+        pct, money(u), money(l), money(left), money(rate(pd)), money(proj),
+        (l > 0 ? int(proj * 100 / l + 0.5) : 0), int(el * 100 / total + 0.5),
+        int(el) + 1, int(total + 0.5), int(days_left + 0.5),
+        money(rate(days_left > 0 ? left / days_left : 0)), cap
 }')
 EOF
     [ -n "$pct" ] || return
@@ -605,8 +630,35 @@ EOF
     elif [ "$pct" -ge 80 ]; then badge="  🚨 ${red}80%+${reset} ${white}${left_fmt}${reset} ${dim}left${reset}"
     elif [ "$pct" -ge 50 ]; then badge="  ⚠ ${yellow}50%+${reset} ${white}${left_fmt}${reset} ${dim}left${reset}"
     fi
+    local meter="$(build_bar "$pct" 8) $(color_for_pct "$pct")$(printf '%3d' "$pct")%${reset} ${white}${used_fmt}${dim}/${reset}${white}${limit_fmt}${reset} ${dim}resets${reset} ${white}${reset_fmt}${reset}${badge}"
 
-    printf '%s' "${white}extra${reset}   $(build_bar "$pct" 8) $(color_for_pct "$pct")$(printf '%3d' "$pct")%${reset} ${white}${used_fmt}${dim}/${reset}${white}${limit_fmt}${reset} ${dim}resets${reset} ${white}${reset_fmt}${reset}${badge}"
+    if [ "$has_windows" != false ]; then
+        printf '%s' "${white}extra${reset}   ${meter}"
+        return
+    fi
+
+    # Spend share vs month share, with a ±5-point dead zone.
+    local pace_mark=""
+    if [ "$pct" -lt 100 ]; then
+        if [ "$pct" -gt $(( month_pct + 5 )) ]; then pace_mark="  ${dim}▲ over pace${reset}"
+        elif [ "$pct" -lt $(( month_pct - 5 )) ]; then pace_mark="  ${dim}▼ under pace${reset}"
+        fi
+    fi
+
+    local verdict=""
+    if [ "$pct" -ge 100 ]; then verdict=""
+    elif [ "$cap_epoch" -gt 0 ]; then verdict="  ⚡ ${red}cap by $(format_reset_time "$cap_epoch" "date")${reset}"
+    elif [ "$proj_pct" -ge 80 ]; then verdict="  ${yellow}⚠ tight${reset}"
+    else verdict="  ${green}✓ on track${reset}"
+    fi
+
+    local budget="${white}${budget_fmt}/day${reset} ${dim}left for ${days_left}d${reset}"
+    [ "$pct" -ge 100 ] && budget="${dim}no budget left · resets in ${days_left}d${reset}"
+
+    printf '%s' "${white}spend${reset}   ${meter}${pace_mark}"
+    printf '%s' "\n${white}pace${reset}    $(build_bar "$proj_pct" 8) $(color_for_pct "$proj_pct")$(printf '%3d' "$proj_pct")%${reset} ${white}~${per_day_fmt}/day${reset} ${dim}→${reset} ${white}${projected_fmt}${reset}${verdict}"
+    # Time is not good or bad, so the month bar stays dim.
+    printf '%s' "\n${white}month${reset}   $(build_bar "$month_pct" 8 "$dim") ${dim}$(printf '%3d' "$month_pct")%${reset} ${white}day ${day_n}/${days_total}${reset} ${dim}·${reset} ${budget}"
 }
 
 # ── Rate limits: prefer input JSON (freshest), fall back to OAuth API ──
@@ -742,7 +794,7 @@ EOF
     # Extra-usage credits (only surfaced via API). Currency and minor-unit
     # scale are API-driven (e.g. EUR, 2 decimals).
     if [ "$extra_enabled" = "true" ]; then
-        spend_rows=$(render_spend_lines "$extra_used_minor" "$extra_limit_minor" "$extra_decimals" "$(currency_symbol "$extra_currency")")
+        spend_rows=$(render_spend_lines "$extra_used_minor" "$extra_limit_minor" "$extra_decimals" "$(currency_symbol "$extra_currency")" "$has_windows")
         [ -n "$spend_rows" ] && rate_lines+="\n${spend_rows}"
     fi
 fi
