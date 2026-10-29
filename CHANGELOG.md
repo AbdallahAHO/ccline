@@ -1,5 +1,19 @@
 # Changelog
 
+# [1.6.0](https://github.com/AbdallahAHO/ccline/compare/v1.5.0...v1.6.0) (2026-10-29)
+
+### Bug Fixes
+
+* **statusline:** accept usage responses without plan windows ([45181ba](https://github.com/AbdallahAHO/ccline/commit/45181baca5837c0de28eefbcabd48626d6a3a5f3))
+* **statusline:** back off after usage API failures ([f7db5e8](https://github.com/AbdallahAHO/ccline/commit/f7db5e8ed09f989a79bd915eef0440bf113f2dde))
+* **statusline:** render idle and low-usage meters correctly ([de8915f](https://github.com/AbdallahAHO/ccline/commit/de8915f43611bc18ac0389414e5ed6d43760caf4))
+
+### Features
+
+* **statusline:** compact money and 50/80% warnings on the extra row ([f1a3549](https://github.com/AbdallahAHO/ccline/commit/f1a354905d0dd86d28ed8559be5b3553e1c2c68c))
+* **statusline:** show weekday for resets within the coming week ([7033864](https://github.com/AbdallahAHO/ccline/commit/70338646d28b6127ff059fa1b394a6b210206bc4))
+* **statusline:** spend, pace and month rows for enterprise plans ([0c0249d](https://github.com/AbdallahAHO/ccline/commit/0c0249da5fd05c89fa3aed212654e8c34db5c0da))
+
 # [1.5.0](https://github.com/AbdallahAHO/ccline/compare/v1.4.1...v1.5.0) (2026-07-04)
 
 
