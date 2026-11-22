@@ -1,6 +1,12 @@
 # ccline
 
-A feature-rich statusline for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that helps you track session health, manage quota, and avoid burning through your Max plan.
+A status line for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that answers the three questions you keep asking mid-session:
+
+- **How long until this conversation compacts?** Context against your real compaction point, in turns.
+- **What is this session costing?** The bill so far and its hourly rate.
+- **Will my limits last the week?** Every limit your plan has, Fable's included, with when you'd run out and the daily budget that would last.
+
+One bash script, no daemon, and it never waits on the network.
 
 ![demo](.github/demo.png)
 
@@ -8,7 +14,7 @@ A feature-rich statusline for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 **Line 1 — Identity & Project**
 ```
-O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-reviewer | ⎇ feat-x | → src/features/search
+F5.2 ● high ↯ fast 🛡 plan | 📂 my-app (main*) PR #42 ✓ 📝+147 -38 | @code-reviewer | ⎇ feat-x | → src/auth
 ```
 - Compact model name with effort level — the full ladder is rendered distinctly:
 
@@ -17,7 +23,7 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
   | low    | `◔`   | dim     | minimal reasoning                          |
   | medium | `◑`   | white   |                                            |
   | high   | `●`   | magenta |                                            |
-  | xhigh  | `◉`   | red     | default on Opus 4.7 (v2.1.117+)            |
+  | xhigh  | `◉`   | red     |                                            |
   | max    | `⚡`   | red     | deepest reasoning, session-only by default |
 
   The badge reflects the **live session** effort — including mid-session `/effort` changes — read from the input JSON's `effort.level`, falling back to the saved `settings.json` default.
@@ -35,19 +41,23 @@ O4.7 1M ◉ xhigh 🛡 plan | 📂 really-app (main*) 📝+147 -38 | @code-revie
 
 **Line 2 — Context, cost, cache**
 ```
-ctx ●●●○○○○○ 391k/784k · ~12 turns | $33.03 · $8.1/h | cache til 10:12pm · 2 misses
+ctx ●●●○○○○○ 412k/967k · ~24 turns | $24.18 · $8.1/h | cache til 10:27pm · 1 miss
 ```
-- **Context** is measured against the point where Claude Code will compact, not the model's full window, so a custom compaction point shows as itself (`391k/784k`). It honours `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, the `autoCompactWindow` setting (also per model), `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, and auto-compact switched off (then it counts to the hard block).
+- **Context** is measured against the point where Claude Code will compact, not the model's full window, so a custom compaction point shows as itself (`391k/784k` with an 80% override). It honours `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, the `autoCompactWindow` setting (also per model), `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, and auto-compact switched off (then it counts to the hard block).
 - **Turns left** before compaction (`~12 turns`), from this session's average growth per turn; yellow at 5, red at 2. Replaced by `compacting…` or `⛔ blocked` when you get there.
 - **Cost** with its rate once the session is ten minutes old (`$8.1/h`); the rate turns yellow at $10/h and red at $20/h.
 - **Prompt cache** — `cache til 10:12pm` is when the next message would have to rebuild it, with `· 2 misses` when it was rebuilt mid-session. Once it expires: `cache cold · 391k to rebuild`.
 
-**Lines 3+ — Quota & Rate Limits (Pro / Max / Ultra)**
+**Lines 3+ — Limits (Pro / Max / Ultra)**
 ```
-current ●●●●●○○○  68% · resets 3:42pm
-weekly  ●●○○○○○○  37% · out tue 10am · budget 10%/day
-fable   ●●○○○○○○  36% · out tue 11am · 18/50% of weekly
-extra   ●●●●○○○○  55% €22/€40 resets aug 1  ⚠ 50%+ €18 left
+# Ultra: weekly limits only
+weekly  ●●●●●○○○  71% · out tue 7pm · budget 12%/day
+fable   ●●●●○○○○  58% · resets wed 6am · 29/50% of weekly
+
+# Max: a 5-hour limit too, and usage credits switched on
+current ●●●●●○○○  68% · resets 1am
+weekly  ●●○○○○○○  34% · resets wed 6am
+extra   ●●●●○○○○  55% €22/€40 resets dec 1  ⚠ 50%+ €18 left
 ```
 - Rate limits read directly from Claude Code's input JSON whenever it carries them, even at 0% (freshest data); the OAuth usage API covers the per-model and `extra` rows, from a cache at `${TMPDIR:-/tmp}/claude-$UID/` that is refreshed in the background every 5 minutes
 - The `current` row is dropped on plans without a 5-hour limit (the server's rows carry no session meter, as on Ultra); `· burning fast` when it is at 90% with over a quarter of the window to go
@@ -58,9 +68,9 @@ extra   ●●●●○○○○  55% €22/€40 resets aug 1  ⚠ 50%+ €18 l
 
 **Lines 3+ — Spend (Enterprise)**
 ```
-spend   ●○○○○○○○   7% $350/$5K resets nov 1  ▼ under pace
-pace    ●○○○○○○○  19% ~$30/day → $950  ✓ on track
-month   ●●○○○○○○  36% day 12/31 · $232/day left for 20d
+spend   ●●○○○○○○  37% $1.8K/$5K resets dec 1  ▼ under pace
+pace    ●●●●○○○○  50% ~$84/day → $2.5K  ✓ on track
+month   ●●●●●○○○  73% day 22/30 · $390/day left for 8d
 ```
 Spend-billed plans have no session or weekly windows — the monthly credit cap is the whole budget — so these rows take the place of `current` / `weekly`:
 - **spend** — used vs. cap with the same badges as `extra`, plus `▲ over pace` / `▼ under pace` when spend runs more than 5 points ahead of or behind the share of the month gone
@@ -75,7 +85,7 @@ npx @abdallahaho/ccline@latest
 
 This copies the statusline script to `~/.claude/statusline.sh` and configures your `~/.claude/settings.json`. Restart Claude Code to see it.
 
-If you already have a custom statusline, it's backed up to `statusline.sh.bak` first.
+If you already have a custom statusline, it's backed up to `statusline.sh.bak` first. Run the same command again to update.
 
 ## Requirements
 
