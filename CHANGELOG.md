@@ -1,5 +1,11 @@
 # Changelog
 
+# [1.7.0](https://github.com/AbdallahAHO/ccline/compare/v1.6.0...v1.7.0) (2026-11-22)
+
+### Features
+
+* **statusline:** focused layout with server-driven usage rows ([c3943ba](https://github.com/AbdallahAHO/ccline/commit/c3943ba4b1f13d4d94178f95c038702b1636fbe0))
+
 # [1.6.0](https://github.com/AbdallahAHO/ccline/compare/v1.5.0...v1.6.0) (2026-10-29)
 
 ### Bug Fixes
