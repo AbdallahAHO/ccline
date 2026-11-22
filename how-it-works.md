@@ -56,9 +56,9 @@ After this one call, everything the script needs is a plain shell variable.
 | `build_bar`        | Renders a filled/empty dot bar (`●●●○○○○○`)                                          |
 | `iso_to_epoch`     | ISO-8601 → unix epoch — tries GNU `date -d` first, falls back to BSD `date -j -f`     |
 | `to_epoch`         | Accepts either an ISO string OR an integer epoch; returns epoch or empty              |
-| `format_reset_time`| Epoch → `3:42pm`, `fri 7pm` (inside 6 days) or `apr 3, 7pm`, lowercased on BSD and GNU |
+| `format_reset_time`| Epoch → `3:42pm`, `fri 7pm` (inside 6 days) or `apr 3, 7pm`, rounded to the minute, lowercased on BSD and GNU |
+| `weekly_outlook`   | Percent + reset epoch → `· resets fri 7pm`, or `· out tue 10am · budget 10%/day` when the average rate runs out first |
 | `render_spend_lines`| Extra-credit row, or Enterprise spend/pace/month rows — one `awk` pass for all numbers and compact money (`$10K`, `$350`, `€0.95`) |
-| `file_birth_epoch` | Portable birth-time lookup (BSD `stat -f %B`, GNU `stat -c %W`, mtime fallback)       |
 
 The `date` / `stat` helpers all have a *BSD path* and a *GNU path* because macOS ships BSD userland and Linux ships GNU coreutils — the flags are incompatible. We always try one, fall back to the other.
 
@@ -66,43 +66,59 @@ The `date` / `stat` helpers all have a *BSD path* and a *GNU path* because macOS
 
 Assembled into `$line1` in this order:
 
-1. **Model + effort** — `O4.7 1M ◉ xhigh`. The model name is compacted (`Opus ` → `O`, `(1M context)` → `1M`) via a single `sed` pipeline. Effort level is the live `.effort.level` from the input JSON (so `/effort` changes show immediately), falling back to `~/.claude/settings.json`'s `.effortLevel`; each value maps to a distinct glyph/color pair.
-2. **Permission-mode badge** — `🛡 plan`, `✎ auto`, `⚡ bypass`. Hidden when the mode is `default`.
-3. **Output-style badge** — `◎ <name>` when a non-default output style is active.
-4. **Vim mode** — `[N]` or `[I]` when vim mode is on.
-5. **Project** — `📂 <name> (<branch><dirty>) 📝+X -Y`. The branch and dirty flag come from a single `git status --porcelain=v1 -b` call wrapped in `GIT_OPTIONAL_LOCKS=0` so a killed statusline can't leave a stale `.git/index.lock` behind.
-6. **Agent / worktree / session name** — only rendered when present.
-7. **Relative cwd** — if the current dir differs from the project root, show the remainder (`→ src/features/search`). If cwd is outside the project entirely, fish-style abbreviate (`~/D/P/ccline`).
-8. **200k flag** — `⚠ 200k+` when Claude Code's input JSON has `.exceeds_200k_tokens: true`: the latest response crossed the fixed 200k-token threshold (long-context pricing on 1M models). It is not a downgrade.
+1. **Model + effort** — `O4.7 1M ◉ xhigh`. The model name is compacted (`Opus ` → `O`, `Fable ` → `F`, `(1M context)` → `1M`) via a single `sed` pipeline. Effort level is the live `.effort.level` from the input JSON (so `/effort` changes show immediately), falling back to `~/.claude/settings.json`'s `.effortLevel` inside the same `jq` call; each value maps to a distinct glyph/color pair.
+2. **Fast mode** — `↯ fast` when `.fast_mode` is true.
+3. **Permission-mode badge** — `🛡 plan`, `✎ auto`, `⚡ bypass`. Hidden when the mode is `default`.
+4. **Output-style badge** — `◎ <name>` when a non-default output style is active.
+5. **Vim mode** — `[N]` or `[I]` when vim mode is on.
+6. **Project** — `📂 <name> (<branch><dirty>) PR #N 📝+X -Y`. The PR badge comes from `.pr.number` and is coloured by `.pr.review_state` (`approved` ✓ green, `changes_requested` ✗ red, `merged` magenta, `draft` / `closed` dim). The branch and dirty flag come from a single `git status --porcelain=v1 -b` call wrapped in `GIT_OPTIONAL_LOCKS=0` so a killed statusline can't leave a stale `.git/index.lock` behind.
+7. **Agent / worktree / session name** — only rendered when present.
+8. **Relative cwd** — if the current dir differs from the project root, show the remainder (`→ src/features/search`). If cwd is outside the project entirely, fish-style abbreviate (`~/D/P/ccline`).
+9. **200k flag** — `⚠ 200k+` when Claude Code's input JSON has `.exceeds_200k_tokens: true`: the latest response crossed the fixed 200k-token threshold (long-context pricing on 1M models). It is not a downgrade.
 
-## Line 2 — session health
+## Line 2 — context, cost, cache
 
-Built from the same hydrated variables, in this order:
-
-1. **Turn counter** — scans the transcript file for `"type":"user"` lines, *excluding* lines carrying `tool_use_id` (tool results also have `type:user` and inflate the count ~10×). Color ramps: white → yellow at 30 → red at 50.
-2. **Session duration** — `now - file_birth_epoch(transcript_path)`. Birth time is the correct start marker because the transcript file is created at session start and never rotated.
-3. **Context usage** — `pct% used_tokens/ctx_size ctx`, with autocompact warnings appended:
-   - `compact soon` at `ctx_size - 33k`
-   - `compacting…` at `ctx_size - 13k`
-   - `⛔ blocked` at `ctx_size - 3k`
-   These thresholds mirror `AUTOCOMPACT_BUFFER_TOKENS` / `WARNING_THRESHOLD_BUFFER_TOKENS` / `MANUAL_COMPACT_BUFFER_TOKENS` in `src/services/compact/autoCompact.ts` of Claude Code.
-4. **Session cost** — `$X.XX`, yellow at $5, red at $10.
-5. **API-latency ratio** — `total_api_duration_ms / total_duration_ms`. How much of the session's wall-clock was spent waiting on the model. Useful signal for "am I bottlenecked on the model or on my own typing?".
+1. **Context** — `ctx ●●●○○○○○ 391k/784k`: the tokens in context against the point where they compact, coloured by that share. The point is the one Claude Code 2.1.330 computes: the window is the model's, or a smaller configured one (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then `modelSettings.<model id>.autoCompactWindow`, then `autoCompactWindow` in `~/.claude/settings.json`; `500k` and `500000` both read, under 100k counts as 100k). 20k of it is reserved for output. Compaction starts 13k below that, or at `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` percent of it when that comes sooner. With auto-compact off (`autoCompactEnabled: false`, `DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT`) the meter counts to the block instead, 3k below the model's own reserve. The settings file is read with a shell builtin and handed to the one `jq` call, which does this arithmetic; only the user's `settings.json` is read, not project or managed settings.
+2. **Turns left** — `· ~12 turns`: `(compaction point − used) ÷ (used ÷ turns)`, from the third turn, once under 100; yellow at 5, red at 2. The turn count scans the transcript for `"type":"user"` lines, excluding those carrying `tool_use_id` (tool results are also `type:user`). It is an average over the session, so it reads high right after a compaction. In its place: `compacting…` past the compaction point, `⛔ blocked` past the block, and `compact soon` within 20k of compaction before there are enough turns to average.
+3. **Cost** — `$33.03 · $8.1/h`: `.cost.total_cost_usd`, and per hour of `total_duration_ms` once the session is ten minutes old. The rate carries the colour: yellow from $10/h, red from $20/h. One `awk` pass.
+4. **Prompt cache** — from `.prompt_cache`: `cache til 10:12pm` is `expires_at` while `warm` is true, with `· 2 misses` when `misses` is above zero. It is a clock time because a countdown would freeze between renders. Once cold: `cache cold · 391k to rebuild` (`recache_tokens_if_cold`). Nothing is shown when `caching_observed` is false.
 
 ## Rate limits — the two-source strategy
 
-Rate-limit bars (5h and 7d) are rendered by `render_rate_lines`, which takes `(five_hour_pct, five_hour_reset, seven_day_pct, seven_day_reset)` and doesn't care where the numbers came from. Two sources, in priority order:
+Rate-limit bars (5h and 7d) are rendered by `render_rate_lines`, which takes `(five_hour_pct, five_hour_reset, seven_day_pct, seven_day_reset, show_current)` and doesn't care where the numbers came from. The `current` row is dropped when the plan has no 5-hour limit: the server's `limits[]` has no `session` row, its `five_hour` is null, and Claude Code sent no 5-hour window. Without `limits[]` to go by, the row stays. Two sources, in priority order:
 
 1. **Input JSON** — if Claude Code includes `.rate_limits.five_hour` / `.seven_day` in the payload, those numbers are authoritative (generated server-side right before the render) — even at 0%, so presence is checked rather than value.
-2. **OAuth API fallback** — otherwise (typically the very first render after launch) the windows come from `https://api.anthropic.com/api/oauth/usage`, called with a Bearer token and cached for 60 seconds under `${TMPDIR:-/tmp}/claude-${UID}/statusline-usage-cache.json` (`0700`). The cache directory is per-UID so a multi-user box can't cross-pollute.
+2. **OAuth API fallback** — otherwise (typically before the session's first response) the windows come from the cached `https://api.anthropic.com/api/oauth/usage` response, while that cache is under 15 minutes old.
 
 A fetch counts as successful on HTTP 200 alone: spend-billed plans answer with `null` `five_hour` / `seven_day`, which is valid and simply means there are no windows to draw.
 
-The API response also carries the per-model weekly buckets (`limits[]`) and an `extra_usage` block — add-on credits on Pro/Max, the whole budget on Enterprise — so the API is consulted (through the shared cache) even when the input JSON has the windows.
+The API response also carries the server's usage rows (`limits[]`) and an `extra_usage` block — add-on credits on Pro/Max, the whole budget on Enterprise — so the cache is read even when the input JSON has the windows.
+
+### Server-driven rows
+
+`limits[]` is the server's own list of meters: each row has a `kind` (`session`, `weekly_all`, `weekly_scoped`, …), a `percent`, a `resets_at`, an optional `scope` naming a model or a surface, and a `severity`. `session` and `weekly_all` are the current/weekly windows. Every other row is drawn as its own meter in the server's order, labelled by `scope.model.display_name`, else `scope.surface.display_name`, else the kind — so a meter Anthropic adds later shows up without a release. `severity` can raise a row's colour (`warning` → yellow, `critical` → red) but never lowers it. A row whose `resets_at` has passed is dropped, since a cached percent is wrong once its window resets.
+
+A body without `limits[]` (an older server) falls back to the top-level `seven_day_opus` / `seven_day_sonnet` windows. A plan without any window (spend-billed) keeps only the model-scoped weekly rows, so its three spend rows stay exactly as they were.
+
+Two more parts of the body decorate these rows:
+
+- **`weekly_scoped_shares`** — for the row at `limit_index`, `used_percent_of_weekly` and `allowance_percent_of_weekly` become `· 15/50% of weekly`: the row's own percent is of its allowance, and this is the same usage as a share of the whole week.
+- **`cedar_ember`** — the plan's limit resets, returned because the request carries `?cedar_ember=1`. Each grant lists the windows it `clears` and its `resets_left`. Grants that clear `seven_day` count for the `weekly` row; grants that clear only `seven_day_overage_included` count for model rows. A row at 80% or more shows `↺ N resets`. Paused, unusable or ineligible grants are not counted, and the model count applies only when there is exactly one model row.
+
+### Fetching without blocking the render
+
+The usage endpoint answers 429 when it is asked too often, with a `Retry-After` that has been seen at half an hour. Two things could turn one request a minute into a stream of them: Claude Code aborts a render that a newer one supersedes, so a render blocked in `curl` could be killed before it wrote the cache and the next render sent the request again; and every open session did the same when the cache expired.
+
+So a render never fetches. It draws the cache and, when the cache is over 5 minutes old and the next-request marker has passed, does two things:
+
+1. **Claims the next minute** by writing `now + 60` to the marker (`statusline-usage-backoff`) before any request goes out. Every session reads the marker, so one request is sent no matter how many renders overlap.
+2. **Starts `refresh_usage_cache` detached** — a subshell with `set -m`, which gives the background job its own process group, so a kill aimed at the render's group cannot reach it. The job resolves the OAuth token, calls the API (the token goes to `curl` on stdin, never in `ps`), writes the body whole and renames it into place. A plan whose cached body has windows is asked for its limit resets with `?cedar_ember=1`; an answer to that other than 200, 401, 403 or 429 is tried once more without it. A spend-billed plan and every cold start send the plain request, exactly as before. On a failure it pushes the marker out by the server's `Retry-After` plus 30 seconds, or 5 minutes after a 429/403 without one, 1 minute after a timeout, 5xx or offline — a day at most. The wait is honored in full because a request sent inside the penalty has been seen to lengthen it (30 minutes became an hour).
+
+The next render picks up the result. Only a cold start, with nothing to show, waits for that fetch — two seconds at most, less if it fails — so a plan whose only rows come from the API has them on its first render. While the API is failing, the cached rows stay up for 2 hours, marked `· 20m old` once they pass 15 minutes.
 
 ### Spend rows
 
-`render_spend_lines` draws `extra_usage`. On Pro/Max that is one `extra` row. When the response has no windows (Enterprise), it draws three rows in the slots `current` / `weekly` would use:
+`render_spend_lines` draws `extra_usage` while `is_enabled` is true. On Pro, Max and Ultra that is one `extra` row. When the response has no windows (Enterprise), it draws three rows in the slots `current` / `weekly` would use:
 
 - **spend** — used ÷ cap, rounded but held at 99% while money is left; `⚠ 50%+` / `🚨 80%+` show what's left, `⛔ CAP HIT` the limit. `▲ over pace` / `▼ under pace` when spend% is more than 5 points from month%.
 - **pace** — `used ÷ days elapsed` projected over the whole month (the first half-day counts as half a day so an early session can't spike it). `⚡ cap by <date>` when that rate exhausts the cap before the reset, `⚠ tight` from 80%, else `✓ on track`.
@@ -117,29 +133,22 @@ Tried in this order, first hit wins:
 3. `~/.claude/.credentials.json` (works on every platform — the only path on Windows since `security` and `secret-tool` don't exist there)
 4. Linux `secret-tool lookup service "Claude Code-credentials"`
 
-Each step extracts `.claudeAiOauth.accessToken` via `jq`. If everything fails we just skip the API call — the input-JSON path still works.
+Each step extracts `.claudeAiOauth.accessToken` via `jq`. It runs inside the detached fetch, so a slow keychain never delays a render. If everything fails we just skip the API call — the input-JSON path still works.
 
-### "Burning fast" heuristics
+### Weekly outlook and burning fast
 
-Both windows get a `⚡ burning fast` flag when usage is outrunning the elapsed window fraction:
+`weekly_outlook` takes a row's percent and reset epoch and, in one `awk` pass, divides the percent by the days elapsed in the 7-day window. If that daily rate reaches 100% before the reset, the row ends `· out tue 10am` in red — the claude.ai usage page's "at this pace you'll run out Tuesday evening" — and the `weekly` row adds `· budget 10%/day`, what is left divided by the days to the reset. Otherwise the row ends `· resets fri 7pm`. Model rows whose `group` is `weekly` use the same function without the budget.
 
-- **5h**: ≥90% used *and* ≥72% of the window elapsed → burning fast
-- **7d**: tiered — ≥75% used by 60% elapsed, ≥50% by 35%, or ≥25% by 15%
-
-The 7d row also shows a projected `~X%/day` burn rate colored green/yellow/red against the 100% projection.
-
-### Peak hour detection
-
-Between 05:00–11:00 Pacific, Anthropic's 5h limits are tighter. We compute the PT hour and append `🔥 PEAK til <local time>` to the 5h row when we're in that window. `peak_end_local` is computed in PT but formatted in the user's local timezone so the "til" time is meaningful wherever you are.
+The 5h row gets `· burning fast` at 90% used with more than 28% of the window still to go.
 
 ## Caching & temp files
 
-The only thing cached to disk is the OAuth API response (60s TTL) at `${TMPDIR:-/tmp}/claude-${UID}/statusline-usage-cache.json`. We:
+The only things on disk are the usage-API response and the next-request marker, both under `${TMPDIR:-/tmp}/claude-${UID}/`. We:
 
-- `mkdir -p` the dir with `0700` perms, then `umask 077` on the write
-- Use `stat -c %Y` / `stat -f %m` (GNU / BSD) to read mtime for cache freshness
-- Fall back to the cache when a new API call fails, but only while it is ≤15 minutes old — older data is more likely wrong (e.g. from before an account switch) than useful
-- Write a one-line backoff marker (`statusline-usage-backoff`, the epoch to retry after) on a failed fetch: 5 minutes after a 429/403 — Claude Code's own backoff — 1 minute after a timeout, 5xx or offline. Every session reads it, so a failing endpoint costs one request per window, not one per render. Unreadable or implausible values are ignored.
+- `mkdir -p` the dir with `0700` perms, then `umask 077` on the writes
+- Use `stat -c %Y` / `stat -f %m` (GNU / BSD) to read mtime for cache age
+- Write the response to `statusline-usage-cache.json.tmp` and `mv` it into place, so a reader never sees half a body
+- Treat the marker as an epoch, not a lock: a value that is unreadable or more than a day ahead is ignored, so nothing can get stuck
 
 No lock files, no pidfiles.
 
@@ -149,7 +158,6 @@ Every non-trivial external command has a fallback path because the same name beh
 
 - **`date`**: GNU has `-d "string"` and `-d "@epoch"`; BSD has `-j -f "format" "string"` and `-j -r epoch`
 - **`stat`**: GNU uses `-c` format-specifiers; BSD uses `-f`
-- **Birth time**: true birthtime exists on macOS (`stat -f %B`) and recent GNU coreutils (`stat -c %W`), but some filesystems (ext4 on older kernels, tmpfs) don't record it — we degrade to mtime so session duration is approximate but never missing
 
 The script runs on macOS (default path), Linux, WSL, and Git Bash/MSYS2. It does *not* run as PowerShell — users need to invoke it through `bash -c` if their Claude Code is launched from PowerShell.
 
@@ -161,13 +169,12 @@ Everything below is designed to degrade quietly rather than fail loudly — the 
 |------------------------------------------|-------------------------------------------------------------|
 | `jq` missing                             | `eval` sees empty string, all vars unset, minimal line prints |
 | `git` missing or cwd isn't a repo        | Branch segment silently omitted                             |
-| OAuth token unresolvable                 | API fallback skipped, input-JSON bars still render          |
-| API request times out (3s cap)           | Serve cache ≤15 min old, else skip API rows; retry in 1 min |
-| API rate-limits (429/403)                | One request per 5 min across sessions; cache ≤15 min shown  |
+| OAuth token unresolvable                 | No request; retried in 5 min; input-JSON bars still render  |
+| API request times out (5s cap)           | Render is unaffected; cached rows stay up; retry in 1 min   |
+| API rate-limits (429/403)                | Wait out `Retry-After` (≤1 day); cached rows shown up to 2 h |
 | Plan has no session/weekly windows       | Spend / pace / month rows instead of current / weekly       |
-| Transcript file unreadable               | Turn counter and session duration skipped                   |
+| Transcript file unreadable               | Turns-left estimate skipped                                 |
 | Index-refresh would take `.git/index.lock` | `GIT_OPTIONAL_LOCKS=0` skips the refresh entirely         |
-| Filesystem without birth time            | Session duration falls back to mtime-based approximation    |
 
 ## Performance notes
 
@@ -176,7 +183,7 @@ The hottest optimizations in the current code:
 - **One `jq` per JSON document** (input + usage response) instead of one per field saves ~150ms per render on slow machines
 - **One `git status`** captures branch + dirty together
 - `GIT_OPTIONAL_LOCKS=0` avoids the stat-refresh path entirely — slightly faster *and* lock-safe
-- 60s cache on API responses, shared by every session, means at most one network call per minute — and one per backoff window while the API is failing
+- The usage API is never called in the render path: one detached request per 5 minutes, shared by every session, and one per `Retry-After` window while the API is failing
 - No `claude --version` subprocess (removed in 1.3.0 — was adding 300–500ms per cache miss)
 
-A cold render (empty cache, first launch) spends the most time in the jq parse and the optional API call. A warm render is essentially instant.
+A cold render (empty cache, first launch) waits up to two seconds for the first API response. Every render costs the two jq parses and one `git status`.

@@ -36,7 +36,7 @@ ccline/
 - **Single `jq` parse per document.** All input JSON fields are hydrated in one `eval` block, and the usage API response in another (see `how-it-works.md`). Don't add per-field `jq` calls — each one is a subprocess.
 - **Degrade quietly.** Missing tool, missing field, API failure — the statusline should produce *less* output, never an error message and never a crash.
 - **Cross-platform by default.** Every `date` / `stat` call needs a BSD path and a GNU path. macOS ships BSD; Linux/WSL ships GNU; Git Bash is somewhere in between.
-- **No persistent state.** The only things written to disk are a 60s OAuth cache and a one-line fetch-backoff marker under `${TMPDIR:-/tmp}/claude-${UID}/`. No pidfiles, no session files.
+- **No persistent state.** The only things written to disk are the usage-API cache and a one-line next-request marker under `${TMPDIR:-/tmp}/claude-${UID}/`. No pidfiles, no session files.
 - **Minimal visual noise.** Badges hidden when they'd duplicate the default (e.g. permission-mode badge only renders when non-default). Don't add segments that fire on every render unless they carry signal.
 
 ## Contributing
@@ -112,6 +112,7 @@ CI doesn't run platform matrix tests — reviewer eyeballs the BSD/GNU fallback 
 - **Don't call `jq` per field.** If you need a new input value, add it to the single `eval` block at the top of the script.
 - **Don't assume `date -d` exists.** On BSD it doesn't — always use `to_epoch` / `format_reset_time` helpers that already handle both paths.
 - **Don't add `git` commands without `GIT_OPTIONAL_LOCKS=0`** unless you've verified they can't take `.git/index.lock`. `git status` can take it during stat refresh; `git log`, `git rev-parse`, and `git config` are safe.
+- **Don't fetch in the render path.** Claude Code aborts a render that a newer one supersedes, and a render killed inside a blocking `curl` never writes the cache, so the next one sends the request again. Network calls go through `refresh_usage_cache`, which runs detached.
 - **Don't add interactive prompts.** This runs non-interactively inside Claude Code — anything that reads stdin after the initial `cat` will hang.
 - **Don't use bashisms that break in Git Bash.** Avoid `[[ =~ ]]` in hot paths (works, but slower and has MSYS edge cases); stick with POSIX `[ ]` and `case` where possible. Arrays and `${var:0:1}` slicing are fine.
 - **Don't add segments that require a subprocess on every render** unless the signal is strong. The `claude --version` call was removed in 1.3.0 because it cost 300–500ms per cache miss.
@@ -133,4 +134,4 @@ release-it --ci
 - Script internals, line by line: [how-it-works.md](./how-it-works.md)
 - User-facing docs: [README.md](./README.md)
 - Changelog: [CHANGELOG.md](./CHANGELOG.md)
-- Claude Code statusline JSON fields: `.model`, `.workspace`, `.context_window`, `.cost`, `.rate_limits`, `.permission_mode`, `.output_style`, `.vim`, `.session_name`, `.agent`, `.worktree`, `.transcript_path`, `.exceeds_200k_tokens`
+- Claude Code statusline JSON fields: `.model`, `.workspace`, `.context_window`, `.cost`, `.rate_limits`, `.permission_mode`, `.output_style`, `.vim`, `.session_name`, `.agent`, `.worktree`, `.transcript_path`, `.exceeds_200k_tokens`, `.fast_mode`, `.pr`, `.prompt_cache`
